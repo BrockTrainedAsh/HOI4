@@ -371,15 +371,20 @@ def _ps(script, *args):
                           capture_output=True, timeout=30, text=True)
 
 
-def _ocr_pp(x=190, w=130):
-    """Capture the bar, OCR just the Political Power digits. Returns int or None."""
+def _ocr_pp(x=190, w=130, tries=5):
+    """Capture the bar, OCR just the Political Power digits. Retries transient
+    misses (e.g. HOI4 momentarily not foreground). Returns int or None."""
     SHOTDIR.mkdir(parents=True, exist_ok=True)
     shot = SHOTDIR / "ac_bar.png"
-    _ps("screencap.ps1", "-Out", str(shot), "-H", "90")
-    r = _ps("ocr.ps1", "-Path", str(shot), "-X", str(x), "-Y", "0", "-W", str(w), "-H", "90")
-    txt = (r.stdout or "").strip().replace(",", "")
-    m = re.search(r"\d+", txt)
-    return int(m.group()) if m and "K" not in txt.upper() else None
+    for _ in range(tries):
+        _ps("screencap.ps1", "-Out", str(shot), "-H", "90")
+        r = _ps("ocr.ps1", "-Path", str(shot), "-X", str(x), "-Y", "0", "-W", str(w), "-H", "90")
+        txt = (r.stdout or "").strip().replace(",", "").upper()
+        m = re.search(r"\d+", txt)
+        if m and "K" not in txt:
+            return int(m.group())
+        time.sleep(0.6)
+    return None
 
 
 def autocheat(setval=None, mult=1000, iters=12):
