@@ -49,7 +49,7 @@ end
 
 -- Structured error capture so failures show up in the log instead of vanishing.
 -- Log line formats the watcher (tools/ce_log_watch.py) parses:
---   [ERR] <label>: <message>         a caught Lua/CE error
+--   [ERR] LABEL: MESSAGE             a caught Lua/CE error
 --   DIAGSUMMARY key=val key=val ...  one machine-readable result line
 HC.errors = HC.errors or 0
 function HC.err(label, msg)
