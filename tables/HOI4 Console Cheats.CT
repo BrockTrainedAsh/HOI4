@@ -8,30 +8,39 @@
       <Color>0000FF</Color>
       <VariableType>Auto Assembler Script</VariableType>
       <AssemblerScript>{
- HOI4 Console Cheats - version-independent.
+ HOI4 Console Cheats - version-independent, now with full logging.
  Each child cheat sends an in-game console command by simulating keystrokes:
  it opens the console (` key), types the command, presses Enter, closes it.
 
- HOW TO USE (fixes the old "HOI4 is not the active window" problem):
+ HOW TO USE:
    1. Tick this engine.
-   2. Tick a cheat below. For the "Add ..." cheats you will be asked to type the
-      amount yourself - HOI4's real in-game ceiling is enforced where one exists.
-   3. ALT-TAB to HOI4. The command is QUEUED and fires automatically the moment
-      HOI4 becomes the active window. Several ticked cheats fire in order.
+   2. Tick a cheat below (you will be prompted for amounts on the "Add" cheats).
+   3. ALT-TAB to HOI4. The command is QUEUED and fires the moment HOI4 is active.
 
- Works in any non-Ironman game (console is native). For Ironman, enable the
- console first with Fuwa's extension table, then use these.
- If the console does not open, set HC.GRAVE to your keyboard's console key.
- If a command does nothing in-game, that console alias may have changed for your
- version - tell the maintainer and it will be swapped for the canonical form.
+ IF SOMETHING DOES NOT WORK: tick "[ DIAGNOSTICS ] ..." at the bottom, Alt-Tab to
+ HOI4 for ~8 seconds, then send the log. EVERY step is written to:
+   HC.LOGFILE (see below) AND printed in this Lua Engine window.
+ Read/tail it with:  python3 tools/ce_log_watch.py
 }
 [enable]
 {$lua}
 if syntaxcheck then return end
 HC = HC or {}
-HC.GRAVE = 0xC0   -- the ` / ~ key that opens the HOI4 console (US layout)
+HC.GRAVE = 0xC0   -- ` / ~ key that opens the HOI4 console (US layout). Change if needed.
 HC.ENTER = 0x0D
 HC.SHIFT = 0x10
+-- Where the step-by-step log is written. Change the path if your repo differs.
+HC.LOGFILE = HC.LOGFILE or [[C:\Users\Brock\Documents\My Cheat Tables\HOI4-Memory-Toolkit\logs\ce-console.log]]
+
+-- Timestamped log line -> both the Lua Engine window AND the log file.
+function HC.log(msg)
+  local line = "[" .. os.date("%H:%M:%S") .. "] " .. tostring(msg)
+  print(line)
+  pcall(function()
+    local f = io.open(HC.LOGFILE, "a")
+    if f then f:write(line .. "\n"); f:close() end
+  end)
+end
 
 -- character -> virtual key code (covers what console commands need)
 HC.vk = { [" "] = 0x20, ["."] = 0xBE, ["-"] = 0xBD, ["/"] = 0xBF }
@@ -51,21 +60,27 @@ function HC.focused()
   return wpid == getOpenedProcessID()
 end
 
--- Ask the user for an amount. lo/hi are optional in-game ceilings (clamped).
--- Returns an integer, or nil if cancelled / not a number.
-function HC.askAmount(title, prompt, default, lo, hi)
-  local s = inputQuery("Console Cheats: " .. title, prompt, tostring(default))
-  if s == nil then return nil end
-  local n = tonumber(s)
-  if n == nil then print("[Console Cheats] '" .. tostring(s) .. "' is not a number."); return nil end
-  n = math.floor(n)
-  if lo ~= nil then n = math.max(n, lo) end
-  if hi ~= nil then
-    local capped = math.min(n, hi)
-    if capped ~= n then print("[Console Cheats] capped to in-game max " .. hi .. ".") end
-    n = capped
+-- One-shot environment dump so we can see WHY a cheat is not landing.
+function HC.diag()
+  HC.log("===== DIAGNOSTICS =====")
+  HC.log("CE version: " .. tostring(type(getCEVersion) == "function" and getCEVersion() or "?"))
+  local pid = getOpenedProcessID()
+  HC.log("attached process: " .. tostring(process) .. "  pid: " .. tostring(pid))
+  if pid == nil or pid == 0 then HC.log("WARNING: not attached to a process! Open hoi4.exe in CE first.") end
+  HC.log("API present? getForegroundWindow=" .. type(getForegroundWindow)
+    .. " getWindowProcessID=" .. type(getWindowProcessID)
+    .. " isKeyPressed=" .. type(isKeyPressed)
+    .. " inputQuery=" .. type(inputQuery)
+    .. " createTimer=" .. type(createTimer))
+  local okF, fg = pcall(getForegroundWindow)
+  HC.log("foreground handle: " .. tostring(okF and fg or "ERR"))
+  if okF and fg and fg ~= 0 and type(getWindowProcessID) == "function" then
+    local okP, wp = pcall(getWindowProcessID, fg)
+    HC.log("foreground pid: " .. tostring(okP and wp or "ERR")
+      .. "  HOI4 pid: " .. tostring(pid)
+      .. "  MATCH: " .. tostring(okP and wp == pid))
   end
-  return n
+  HC.log("logfile: " .. tostring(HC.LOGFILE))
 end
 
 function HC.tap(vk)
@@ -88,24 +103,47 @@ function HC.typeString(s)
   for i = 1, #s do HC.typeChar(string.sub(s, i, i)) end
 end
 
--- Actually push the keystrokes (assumes HOI4 is already focused).
-function HC.send(cmd)
-  HC.tap(HC.GRAVE); sleep(140)   -- open console
-  HC.typeString(cmd); sleep(90)
-  HC.tap(HC.ENTER); sleep(90)    -- execute
-  HC.tap(HC.GRAVE)               -- close console
-  print("[Console Cheats] sent: " .. cmd)
+-- Ask the user for an amount. lo/hi are optional in-game ceilings (clamped).
+function HC.askAmount(title, prompt, default, lo, hi)
+  local s = inputQuery("Console Cheats: " .. title, prompt, tostring(default))
+  if s == nil then HC.log(title .. ": cancelled"); return nil end
+  local n = tonumber(s)
+  if n == nil then HC.log(title .. ": '" .. tostring(s) .. "' is not a number"); return nil end
+  n = math.floor(n)
+  if lo ~= nil then n = math.max(n, lo) end
+  if hi ~= nil then
+    local capped = math.min(n, hi)
+    if capped ~= n then HC.log(title .. ": capped to in-game max " .. hi) end
+    n = capped
+  end
+  return n
 end
 
--- One background dispatcher drains the queue, one command at a time, but only
--- while HOI4 is the active window. This is what lets you tick-then-Alt-Tab.
+-- Actually push the keystrokes (assumes HOI4 is already focused).
+function HC.send(cmd)
+  HC.log("send: opening console (GRAVE 0x" .. string.format("%X", HC.GRAVE) .. ")")
+  HC.tap(HC.GRAVE); sleep(140)
+  HC.log("send: typing '" .. cmd .. "'")
+  HC.typeString(cmd); sleep(90)
+  HC.tap(HC.ENTER); sleep(90)
+  HC.tap(HC.GRAVE)
+  HC.log("send: DONE '" .. cmd .. "' (if nothing changed in-game: wrong console key or command)")
+end
+
+-- One background dispatcher drains the queue while HOI4 is the active window.
 function HC.ensureDispatcher()
   if HC.dispatcher then return end
+  HC._lastDispFocus = nil
   HC.dispatcher = createTimer(getMainForm())
   HC.dispatcher.Interval = 200
   HC.dispatcher.OnTimer = function(timer)
     if #HC.queue == 0 then return end
-    if not HC.focused() then return end
+    local f = HC.focused()
+    if f ~= HC._lastDispFocus then
+      HC.log("dispatcher: HOI4 focused=" .. tostring(f) .. " (queued=" .. #HC.queue .. ")")
+      HC._lastDispFocus = f
+    end
+    if not f then return end
     local cmd = table.remove(HC.queue, 1)
     HC.send(cmd)
   end
@@ -115,21 +153,20 @@ end
 function HC.run(cmd)
   table.insert(HC.queue, cmd)
   HC.ensureDispatcher()
-  if HC.focused() then
-    print("[Console Cheats] queued: " .. cmd)
-  else
-    print("[Console Cheats] queued: " .. cmd .. " - Alt-Tab to HOI4 to fire it.")
-  end
+  HC.log("queued: '" .. cmd .. "' - Alt-Tab to HOI4 to fire (queue=" .. #HC.queue .. ")")
   return true
 end
 
-print("[Console Cheats] engine ready. Tick a cheat, then Alt-Tab to HOI4.")
+HC.log("engine ready. Tick a cheat, then Alt-Tab to HOI4. Logging to " .. HC.LOGFILE)
 {$asm}
 
 [disable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.dispatcher then HC.dispatcher.destroy() end
+if HC then
+  if HC.dispatcher then HC.dispatcher.destroy() end
+  if HC.log then HC.log("engine disabled.") end
+end
 HC = nil
 {$asm}
 </AssemblerScript>
@@ -307,22 +344,16 @@ if HC and HC.run then HC.run("allowdiplo") else print("Activate the Console Chea
       <VariableType>Auto Assembler Script</VariableType>
       <AssemblerScript>{
  WASD map camera, done entirely in Cheat Engine (no AutoHotkey, no mod).
- While this is ticked AND HOI4 is the active window, holding W/A/S/D pans the
- map by holding the matching arrow key (W=Up, A=Left, S=Down, D=Right). Releasing
- the key stops. It only acts while HOI4 is focused, and it does NOT consume the
- keys elsewhere - so Alt-Tab out and W/A/S/D type normally again.
-
- Note: while ticked, W/A/S/D also move the camera inside in-game text boxes
- (console / state search). Untick this entry when you need to type in HOI4.
+ While ticked AND HOI4 is the active window, holding W/A/S/D pans the map via the
+ arrow keys (W=Up, A=Left, S=Down, D=Right). It does NOT consume the keys elsewhere.
+ Untick this entry when you need to type in HOI4 (console / state search).
 }
 [enable]
 {$lua}
 if syntaxcheck then return end
 WC = WC or {}
--- {physical key, arrow it maps to}: W->Up, A->Left, S->Down, D->Right
-WC.MAP = { {0x57, 0x26}, {0x41, 0x25}, {0x53, 0x28}, {0x44, 0x27} }
+WC.MAP = { {0x57, 0x26}, {0x41, 0x25}, {0x53, 0x28}, {0x44, 0x27} }  -- W,A,S,D -> Up,Left,Down,Right
 WC.held = {}
-
 function WC.focused()
   local okF, fg = pcall(getForegroundWindow)
   if not okF or not fg or fg == 0 then return false end
@@ -331,7 +362,6 @@ function WC.focused()
   if not okP or not wpid then return false end
   return wpid == getOpenedProcessID()
 end
-
 WC.timer = createTimer(getMainForm())
 WC.timer.Interval = 15
 WC.timer.OnTimer = function(timer)
@@ -347,10 +377,8 @@ WC.timer.OnTimer = function(timer)
     end
   end
 end
-
-print("[WASD] camera ON - hold W/A/S/D to pan while HOI4 is focused. Untick to type.")
+if HC and HC.log then HC.log("WASD camera ON") else print("[WASD] camera ON - hold W/A/S/D to pan while HOI4 is focused.") end
 {$asm}
-
 [disable]
 {$lua}
 if syntaxcheck then return end
@@ -361,9 +389,61 @@ if WC then
     if WC.held and WC.held[arrow] then keyUp(arrow) end
   end
   WC.held = {}
-  print("[WASD] camera OFF.")
 end
+if HC and HC.log then HC.log("WASD camera OFF") else print("[WASD] camera OFF.") end
 WC = nil
+{$asm}
+</AssemblerScript>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>14</ID>
+      <Description>"[ DIAGNOSTICS ] tick, then Alt-Tab to HOI4 for 8s, then send the log"</Description>
+      <Color>FF8000</Color>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>{
+ Diagnostics: dumps the environment, then watches the foreground window for ~8s
+ and tests the console key. Tick this, then Alt-Tab into HOI4 and wait. Read the
+ result with:  python3 tools/ce_log_watch.py
+ What to look for:
+   - "MATCH: true" / "focused=true" after you Alt-Tab  -> focus detection works.
+   - the console visibly opening/closing in-game        -> HC.GRAVE is correct.
+ If focus never goes true, or the console never opens, paste the log to the agent.
+}
+[enable]
+{$lua}
+if syntaxcheck then return end
+if not (HC and HC.diag) then print("Activate the [ ACTIVATE FIRST ] engine first."); return end
+HC.diag()
+HC.log("Alt-Tab to HOI4 now; watching focus for ~8 seconds...")
+HC.dgN = 0
+HC.dgTested = false
+HC.dgTimer = createTimer(getMainForm())
+HC.dgTimer.Interval = 300
+HC.dgTimer.OnTimer = function(t)
+  HC.dgN = HC.dgN + 1
+  local f = HC.focused()
+  local wDown = (type(isKeyPressed) == "function") and tostring(isKeyPressed(0x57)) or "n/a"
+  HC.log("watch " .. HC.dgN .. ": focused=" .. tostring(f) .. "  isKeyPressed(W)=" .. wDown)
+  if f and not HC.dgTested then
+    HC.dgTested = true
+    HC.log("FOCUS DETECTED. Running input tests - WATCH THE GAME:")
+    HC.log("  test 1/2: console key - tapping GRAVE (0x" .. string.format("%X", HC.GRAVE) .. ") twice")
+    HC.tap(HC.GRAVE); sleep(250); HC.tap(HC.GRAVE)
+    HC.log("  test 2/2: arrow inject - holding UP arrow for 0.7s (map should pan up)")
+    keyDown(0x26); sleep(700); keyUp(0x26)
+    HC.log("tests done. REPORT: (a) did the console flash open/closed? (b) did the map pan up?")
+    HC.log("Also press W/A/S/D a few times and check isKeyPressed(W) flips to true above.")
+  end
+  if HC.dgN == 27 then
+    t.destroy(); HC.dgTimer = nil
+    HC.log("===== diagnostics done. Read it: python3 tools/ce_log_watch.py =====")
+  end
+end
+{$asm}
+[disable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.dgTimer then HC.dgTimer.destroy(); HC.dgTimer = nil end
 {$asm}
 </AssemblerScript>
     </CheatEntry>
