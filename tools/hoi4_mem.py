@@ -34,6 +34,7 @@ import argparse
 import array
 import ctypes
 import json
+import re
 import struct
 import subprocess
 import sys
@@ -311,15 +312,23 @@ def _capture(name):
         log(f"capture failed: {e}")
 
 
-def autofind(lo, hi, secs=25):
+def autofind(lo, hi, secs=25, maxmb=0):
     """Autonomous: seed a range scan, OBSERVE for `secs` while the game runs
     (capturing the screen itself), then keep only addresses whose value MOVED -
     the live values. No human in the loop, so no screenshot/scan lag. The agent
-    labels the survivors from the captured screenshots afterwards."""
+    labels the survivors from the captured screenshots afterwards.
+
+    maxmb>0 skips regions larger than that (MB) to scan FAST - game-state heaps are
+    small; the giant buffers it skips are textures/audio, so a fast-changing value
+    barely drifts during a short scan."""
     SHOTDIR.mkdir(parents=True, exist_ok=True)
+    cap = maxmb * 1024 * 1024
     k32, h, _ = attach()
     seed = {}
+    t0 = time.time()
     for base, rsize, _p in iter_regions(k32, h):
+        if cap and rsize > cap:
+            continue
         off = 0
         while off < rsize:
             n = min(CHUNK, rsize - off)
@@ -335,7 +344,7 @@ def autofind(lo, hi, secs=25):
                 break
         if len(seed) > MAX_CANDS:
             break
-    log(f"AUTOFIND seed [{lo},{hi}] -> {len(seed)} candidates; observing {secs}s...")
+    log(f"AUTOFIND seed [{lo},{hi}] -> {len(seed)} in {time.time() - t0:.1f}s; observing {secs}s...")
     shots = max(2, secs // 4)
     for i in range(shots):
         _capture(f"af_{i:02d}.png")
@@ -353,6 +362,89 @@ def autofind(lo, hi, secs=25):
     log(f"AUTOFIND moved -> {len(moved)} live candidates (value changed during observation):")
     for a, (ov, v) in sorted(moved.items())[:80]:
         log(f"  0x{a:X}  {ov} -> {v}")
+    k32.CloseHandle(h)
+
+
+def _ps(script, *args):
+    return subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                           "-File", str(ROOT / "tools" / script), *args],
+                          capture_output=True, timeout=30, text=True)
+
+
+def _ocr_pp(x=190, w=130):
+    """Capture the bar, OCR just the Political Power digits. Returns int or None."""
+    SHOTDIR.mkdir(parents=True, exist_ok=True)
+    shot = SHOTDIR / "ac_bar.png"
+    _ps("screencap.ps1", "-Out", str(shot), "-H", "90")
+    r = _ps("ocr.ps1", "-Path", str(shot), "-X", str(x), "-Y", "0", "-W", str(w), "-H", "90")
+    txt = (r.stdout or "").strip().replace(",", "")
+    m = re.search(r"\d+", txt)
+    return int(m.group()) if m and "K" not in txt.upper() else None
+
+
+def autocheat(setval=None, mult=1000, iters=12):
+    """Deterministic, NO AI in the loop: OCR Political Power, narrow memory to the
+    addresses whose value matches PP x{mult}, repeat until one remains - then,
+    if setval is given, write it. The program reads the number itself via OCR;
+    the agent never reads a screenshot to drive this."""
+    k32, h, _ = attach(write=(setval is not None))
+    pp = _ocr_pp()
+    if pp is None:
+        log("AUTOCHEAT: OCR could not read PP"); k32.CloseHandle(h); return
+    lo, hi = pp * mult, (pp + 12) * mult - 1   # wide: PP drifts during the seed scan
+    log(f"AUTOCHEAT OCR PP={pp}; seed [{lo},{hi}] (skip >32MB regions)...")
+    capmb = 32 * 1024 * 1024
+    seed_cap = 4_000_000   # high, so PP is captured even in value-dense ranges
+    cands = {}
+    for base, rsize, _p in iter_regions(k32, h):
+        if rsize > capmb:
+            continue
+        off = 0
+        while off < rsize:
+            n = min(CHUNK, rsize - off)
+            d = read_bytes(k32, h, base + off, n)
+            if d:
+                arr = array.array("i")
+                arr.frombytes(d[:len(d) // 4 * 4])
+                for i, v in enumerate(arr):
+                    if lo <= v <= hi:
+                        cands[base + off + i * 4] = v
+            off += n
+            if len(cands) > seed_cap:
+                break
+        if len(cands) > seed_cap:
+            break
+    log(f"  seed -> {len(cands)} candidates")
+    for it in range(iters):
+        time.sleep(2.0)
+        pp = _ocr_pp()
+        if pp is None:
+            continue
+        lo, hi = pp * mult, (pp + 2) * mult - 1   # +2 tolerates 1 tick of lag in the read
+        new = {}
+        for a in cands:
+            d = read_bytes(k32, h, a, 4)
+            if d:
+                v = struct.unpack("<i", d)[0]
+                if lo <= v <= hi:
+                    new[a] = v
+        cands = new
+        log(f"  iter {it}: OCR PP={pp} -> {len(cands)} candidates")
+        if len(cands) <= 8:
+            for a, v in sorted(cands.items()):
+                log(f"    0x{a:X} = {v}")
+        if len(cands) == 1:
+            break
+    json_pairs = [[a, v] for a, v in cands.items()]
+    RANGEFILE.write_text(json.dumps({"pairs": json_pairs}))
+    log(f"AUTOCHEAT result: {len(cands)} candidate(s) track Political Power")
+    if setval is not None and len(cands) == 1:
+        addr = next(iter(cands))
+        w = ctypes.c_size_t(0)
+        ok = k32.WriteProcessMemory(h, ctypes.c_void_p(addr),
+                                    struct.pack("<i", setval * mult), 4, ctypes.byref(w))
+        log(f"AUTOCHEAT WROTE 0x{addr:X} = {setval} (x{mult}) -> "
+            f"{'OK' if ok and w.value == 4 else 'FAILED'}")
     k32.CloseHandle(h)
 
 
@@ -431,6 +523,11 @@ def main():
     af = sub.add_parser("autofind", help="seed [lo,hi], observe while playing, keep moved")
     af.add_argument("lo", type=_int); af.add_argument("hi", type=_int)
     af.add_argument("--secs", type=int, default=25)
+    af.add_argument("--maxmb", type=int, default=0)
+    ac = sub.add_parser("autocheat", help="OCR-driven, AI-free: find Political Power and optionally set it")
+    ac.add_argument("--set", type=_int, default=None, dest="setval")
+    ac.add_argument("--mult", type=int, default=1000)
+    ac.add_argument("--iters", type=int, default=12)
     args = ap.parse_args()
 
     if args.cmd == "info":
@@ -456,7 +553,9 @@ def main():
     elif args.cmd == "rangepeek":
         range_peek()
     elif args.cmd == "autofind":
-        autofind(args.lo, args.hi, args.secs)
+        autofind(args.lo, args.hi, args.secs, args.maxmb)
+    elif args.cmd == "autocheat":
+        autocheat(args.setval, args.mult, args.iters)
 
 
 if __name__ == "__main__":
