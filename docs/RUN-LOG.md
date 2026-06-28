@@ -73,3 +73,38 @@ you next want the cheat table rebuilt.
 ### Guardrails honored
 Backup before edit; no files deleted; no force-push; version-bump left as a dry-run
 (already applied); CE not run.
+
+## 2026-06-28 — follow-up (same session)
+
+After the maintainer relaunched HOI4, we confirmed and extended the pass.
+
+- **Category fix confirmed in-game.** Fresh `error.log` (14:16) dropped 279 → 205
+  lines; 0 `Invalid subunit category` / regimental errors. The Steam Workshop edit
+  survived the relaunch.
+- **"Mods still flagged outdated" — root-caused.** The launcher triangle is driven by
+  `launcher-v2.sqlite` (`mods.requiredVersion`), NOT the `*.mod` files. The launcher
+  even *rewrites* the `*.mod` descriptors back from its DB on launch, so editing them
+  is futile alone. **Enhanced `tools/mod_version_bump.py`** with `--sync-launcher-db`
+  (stdlib `sqlite3`, dry-run default, backs up the DB, refuses politely if the DB is
+  locked / launcher open). Applied with the launcher closed: all 8 mods'
+  `requiredVersion` → `1.19.*` (game is `1.19.1.0` "Operation Postern").
+- **Residual UTTNH errors investigated** (surfaced once categories parsed). All the
+  same stale-override class: `heavy_sp_anti_air_support` (missing AA-support
+  battalions), `utility_helicopter_equipment` (undefined equipment). Plus
+  non-additive UTTNH authoring bugs (`country`→`FROM` trigger, `extra_fuel_tanks_small`
+  →`fuel_tanks_small`) and cosmetic GEO-models art misses. All non-fatal.
+- **Durable fix = local override mod** (maintainer's choice over editing Workshop /
+  re-publishing). Built `mod/hoi4_toolkit_119_compat/` in the HOI4 user dir (NOT in
+  this repo — it contains vanilla-derived content; see CLAUDE.md "no game payloads"):
+  complete `00_categories.txt` (override) + additive `*_sp_anti_air_support` units +
+  `utility_helicopter_equipment`. Loads after UTTNH. Needs a one-time enable + bottom
+  load-order in the launcher.
+- **Push from WSL enabled.** Pointed WSL git's `credential.helper` at Windows GCM
+  (`/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe`); push works.
+
+### Still needs the maintainer
+- [ ] Reopen launcher → confirm triangles cleared (may re-pull stale tags from Steam;
+  cosmetic only). Enable the compat patch mod + drag it to the bottom of the order.
+- [ ] CE relocation per `docs/CE-RELOCATION-1.19.md` (manual, needs CE).
+- [ ] Optional future tool: a generator that builds the local override mod from the
+  vanilla install (so the payload stays out of git).
