@@ -105,7 +105,20 @@ def _k32():
     if sys.platform != "win32":
         sys.exit("hoi4_mem.py must run under WINDOWS Python as admin "
                  "(it reads hoi4.exe memory via the Win32 API).")
-    return ctypes.WinDLL("kernel32", use_last_error=True)
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    # CRITICAL on 64-bit: declare prototypes so handles/pointers are not truncated
+    # to 32 bits (the default ctypes restype is c_int).
+    LP, ST, DW, BL, HD = (ctypes.c_void_p, ctypes.c_size_t,
+                          ctypes.c_ulong, ctypes.c_int, ctypes.c_void_p)
+    k.OpenProcess.argtypes = [DW, BL, DW]; k.OpenProcess.restype = HD
+    k.CreateToolhelp32Snapshot.argtypes = [DW, DW]; k.CreateToolhelp32Snapshot.restype = HD
+    k.Process32FirstW.argtypes = [HD, LP]; k.Process32FirstW.restype = BL
+    k.Process32NextW.argtypes = [HD, LP]; k.Process32NextW.restype = BL
+    k.CloseHandle.argtypes = [HD]; k.CloseHandle.restype = BL
+    k.VirtualQueryEx.argtypes = [HD, LP, LP, ST]; k.VirtualQueryEx.restype = ST
+    k.ReadProcessMemory.argtypes = [HD, LP, LP, ST, LP]; k.ReadProcessMemory.restype = BL
+    k.WriteProcessMemory.argtypes = [HD, LP, LP, ST, LP]; k.WriteProcessMemory.restype = BL
+    return k
 
 
 def find_pid(k32, name="hoi4.exe"):
