@@ -437,13 +437,18 @@ HC.dgTimer.OnTimer = function(t)
   HC.log("watch " .. HC.dgN .. ": focused=" .. tostring(f) .. "  isKeyPressed(W)=" .. wDown)
   if f and not HC.dgTested then
     HC.dgTested = true
-    HC.log("FOCUS DETECTED. Running input tests - WATCH THE GAME:")
-    HC.log("  test 1/2: console key - tapping GRAVE (0x" .. string.format("%X", HC.GRAVE) .. ") twice")
-    HC.tap(HC.GRAVE); sleep(250); HC.tap(HC.GRAVE)
-    HC.log("  test 2/2: arrow inject - holding UP arrow for 0.7s (map should pan up)")
-    keyDown(0x26); sleep(700); keyUp(0x26)
-    HC.log("tests done. REPORT: (a) did the console flash open/closed? (b) did the map pan up?")
-    HC.log("Also press W/A/S/D a few times and check isKeyPressed(W) flips to true above.")
+    HC.log("FOCUS DETECTED. WATCH THE GAME CLOSELY for the next ~10 seconds.")
+    HC.log("TEST A: arrow injection - holding UP arrow 0.8s. DOES THE MAP PAN UP?")
+    keyDown(0x26); sleep(800); keyUp(0x26)
+    HC.log("TEST B: trying console keys one at a time. WHICH number opens the console?")
+    local keys = { {0xC0, "grave ` ~ (US default)"}, {0xDE, "apostrophe ' #"},
+                   {0xDC, "backslash \\"}, {0xBF, "slash /"},
+                   {0xBA, "semicolon ;"}, {0x32, "the 2 key"} }
+    for i = 1, #keys do
+      HC.log("  console key " .. i .. ": VK 0x" .. string.format("%X", keys[i][1]) .. " = " .. keys[i][2] .. " (watch now)")
+      HC.tap(keys[i][1]); sleep(1100); HC.tap(keys[i][1]); sleep(800)
+    end
+    HC.log("TESTS DONE. TELL THE AGENT: (A) did the map pan up?  (B) which console-key number (if any) opened the console?")
   end
   if HC.dgN == 27 then
     t.destroy(); HC.dgTimer = nil
