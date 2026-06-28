@@ -41,8 +41,9 @@ SIGNALS = [
     ("pid_match_false",re.compile(r"MATCH:\s*false")),
     ("wkey_true",      re.compile(r"isKeyPressed\(W\)\s*=\s*true")),
     ("queued",         re.compile(r"^\[.*\]\s*queued:")),
-    ("send_open",      re.compile(r"send: opening console")),
-    ("send_done",      re.compile(r"send: DONE")),
+    ("send_open",      re.compile(r"send: opening console|\[DRAIN\] start")),
+    ("send_done",      re.compile(r"send: DONE|\[DRAIN\] done")),
+    ("errors",         re.compile(r"\[ERR\]")),
     ("capped",         re.compile(r"capped to in-game max")),
     ("cancelled",      re.compile(r"cancelled|is not a number")),
 ]
@@ -81,6 +82,54 @@ def verdict(c):
     return out
 
 
+SUMMARY_RE = re.compile(r"DIAGSUMMARY\s+(.*)$")
+ERR_RE = re.compile(r"\[ERR\]\s+(.*)$")
+
+
+def parse_summary(lines):
+    """Parse the last 'DIAGSUMMARY key=val key=val ...' line into a dict, or None."""
+    found = None
+    for ln in lines:
+        m = SUMMARY_RE.search(ln)
+        if m:
+            found = m.group(1)
+    if not found:
+        return None
+    out = {}
+    for tok in found.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            out[k] = v
+    return out
+
+
+def parse_errors(lines):
+    return [m.group(1) for ln in lines for m in [ERR_RE.search(ln)] if m]
+
+
+def structured_verdict(s, errors):
+    """Verdict from the machine-readable DIAGSUMMARY (auto-detectable facts)."""
+    out = []
+    if s.get("attached") == "false":
+        out.append("X CE is NOT attached to hoi4.exe - open the process in CE first.")
+    for api in ("api_fgwin", "api_iskey", "api_inputquery", "api_timer"):
+        if api in s and s[api] != "function":
+            out.append(f"X CE API missing: {api}={s[api]} (expected 'function') - update Cheat Engine.")
+    if s.get("focus_seen") == "false":
+        out.append("X focus never detected after Alt-Tab - HC.focused() is misreading your CE; "
+                   "the dispatcher will never fire.")
+    if s.get("wkey_seen") == "false":
+        out.append("! isKeyPressed(W) never went true - either W wasn't pressed during the watch, "
+                   "or key DETECTION is broken (WASD would fail too).")
+    if errors:
+        out.append(f"X {len(errors)} caught error(s): " + "  ||  ".join(errors[-3:]))
+    if not out:
+        out.append(f"OK auto-checks pass (attached + focus + key-detect + APIs; hold={s.get('hold')}ms). "
+                   "The remaining unknowns are USER-OBSERVED: did the map pan up, and did PP rise by 1? "
+                   "If PP did NOT rise, the key hold is still too short - raise HC.HOLD (e.g. 100) and re-test.")
+    return out
+
+
 def summarize(path: Path):
     if not path.is_file():
         print(f"No log yet at {path}\n"
@@ -88,16 +137,23 @@ def summarize(path: Path):
         return
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     c = scan(lines)
+    summary = parse_summary(lines)
+    errors = parse_errors(lines)
     print(f"CE console log: {path}  ({len(lines)} lines)\n")
-    print("  signals:")
-    for label, _ in SIGNALS:
-        if c[label]:
-            print(f"    {label:16} x{c[label]}")
-    print("\n  last 12 lines:")
-    for ln in lines[-12:]:
+    if summary:
+        print("  DIAGSUMMARY (machine-read):")
+        for k, v in summary.items():
+            print(f"    {k:16} {v}")
+    if errors:
+        print("\n  caught errors:")
+        for e in errors[-6:]:
+            print(f"    {e}")
+    print("\n  last 10 lines:")
+    for ln in lines[-10:]:
         print(f"    {ln}")
     print("\n  VERDICT:")
-    for v in verdict(c):
+    vs = structured_verdict(summary, errors) if summary else verdict(c)
+    for v in vs:
         print(f"    {v}")
 
 

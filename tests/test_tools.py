@@ -128,6 +128,44 @@ class CeLogVerdict(unittest.TestCase):
         self.assertIn("OK", v)
 
 
+class CeLogStructured(unittest.TestCase):
+    SUMMARY = ("[12:00:00] DIAGSUMMARY attached=true api_fgwin=function api_iskey=function "
+               "api_inputquery=function api_timer=function focus_seen=true wkey_seen=true "
+               "errors=0 hold=60 gap=45")
+
+    def test_parse_summary(self):
+        s = clw.parse_summary([self.SUMMARY])
+        self.assertEqual(s["attached"], "true")
+        self.assertEqual(s["focus_seen"], "true")
+        self.assertEqual(s["hold"], "60")
+
+    def test_parse_summary_absent(self):
+        self.assertIsNone(clw.parse_summary(["[..] just a normal line"]))
+
+    def test_structured_all_ok(self):
+        s = clw.parse_summary([self.SUMMARY])
+        v = " ".join(clw.structured_verdict(s, []))
+        self.assertIn("OK", v)
+
+    def test_structured_not_attached(self):
+        v = " ".join(clw.structured_verdict({"attached": "false"}, []))
+        self.assertIn("NOT attached", v)
+
+    def test_structured_focus_failed(self):
+        v = " ".join(clw.structured_verdict({"attached": "true", "focus_seen": "false"}, []))
+        self.assertIn("focus never detected", v)
+
+    def test_structured_reports_errors(self):
+        v = " ".join(clw.structured_verdict(
+            {"attached": "true", "focus_seen": "true", "wkey_seen": "true"},
+            ["drain: attempt to call a nil value"]))
+        self.assertIn("caught error", v)
+
+    def test_parse_errors(self):
+        errs = clw.parse_errors(["[12:00:00] [ERR] drain: boom", "[12:00:01] normal line"])
+        self.assertEqual(errs, ["drain: boom"])
+
+
 class ShippedTable(unittest.TestCase):
     def test_ct_is_valid_xml(self):
         ct = ROOT / "tables" / "HOI4 Console Cheats.CT"

@@ -29,6 +29,11 @@ HC = HC or {}
 HC.GRAVE = 0xC0   -- ` / ~ key that opens the HOI4 console (US layout). Change if needed.
 HC.ENTER = 0x0D
 HC.SHIFT = 0x10
+-- HOI4 polls the keyboard once per frame (~16-33ms). A key must be HELD DOWN long
+-- enough to span a frame or the game misses it (this is why a 12ms tap failed to
+-- open the console while held WASD arrows worked). Raise these if keys still drop.
+HC.HOLD = HC.HOLD or 60   -- ms to hold each key down
+HC.GAP  = HC.GAP  or 45   -- ms between keys
 -- Where the step-by-step log is written. Change the path if your repo differs.
 HC.LOGFILE = HC.LOGFILE or [[C:\Users\Brock\Documents\My Cheat Tables\HOI4-Memory-Toolkit\logs\ce-console.log]]
 
@@ -40,6 +45,21 @@ function HC.log(msg)
     local f = io.open(HC.LOGFILE, "a")
     if f then f:write(line .. "\n"); f:close() end
   end)
+end
+
+-- Structured error capture so failures show up in the log instead of vanishing.
+-- Log line formats the watcher (tools/ce_log_watch.py) parses:
+--   [ERR] <label>: <message>         a caught Lua/CE error
+--   DIAGSUMMARY key=val key=val ...  one machine-readable result line
+HC.errors = HC.errors or 0
+function HC.err(label, msg)
+  HC.errors = HC.errors + 1
+  HC.log("[ERR] " .. tostring(label) .. ": " .. tostring(msg))
+end
+function HC.try(label, fn)         -- run fn, log+count any error, never throw
+  local ok, res = pcall(fn)
+  if not ok then HC.err(label, res) end
+  return ok, res
 end
 
 -- character -> virtual key code (covers what console commands need)
@@ -84,15 +104,15 @@ function HC.diag()
 end
 
 function HC.tap(vk)
-  keyDown(vk); sleep(12); keyUp(vk); sleep(14)
+  keyDown(vk); sleep(HC.HOLD); keyUp(vk); sleep(HC.GAP)
 end
 
 function HC.typeChar(c)
   local sv = HC.shiftChars[c]
   if sv then
-    keyDown(HC.SHIFT); sleep(8)
-    keyDown(sv); sleep(12); keyUp(sv); sleep(8)
-    keyUp(HC.SHIFT); sleep(12)
+    keyDown(HC.SHIFT); sleep(HC.GAP)
+    keyDown(sv); sleep(HC.HOLD); keyUp(sv); sleep(HC.GAP)
+    keyUp(HC.SHIFT); sleep(HC.GAP)
     return
   end
   local vk = HC.vk[c]
@@ -146,17 +166,19 @@ function HC.ensureDispatcher()
     if not f then return end
     -- Drain the WHOLE queue in ONE console session: open once, send every queued
     -- command, close once. One Alt-Tab fires everything; no repeated clicking.
-    local n = #HC.queue
-    HC.log("draining " .. n .. " command(s) in one console session...")
-    HC.tap(HC.GRAVE); sleep(180)            -- open console once
-    while #HC.queue ~= 0 do
-      local cmd = table.remove(HC.queue, 1)
-      HC.log("  typing: " .. cmd)
-      HC.typeString(cmd); sleep(70)
-      HC.tap(HC.ENTER); sleep(120)          -- execute (console stays open)
-    end
-    HC.tap(HC.GRAVE)                         -- close console once
-    HC.log("drain complete (" .. n .. " sent). If one did nothing, that command alias is wrong - tell the agent.")
+    HC.try("drain", function()
+      local n = #HC.queue
+      HC.log("[DRAIN] start n=" .. n .. " hold=" .. HC.HOLD)
+      HC.tap(HC.GRAVE); sleep(180)            -- open console once
+      while #HC.queue ~= 0 do
+        local cmd = table.remove(HC.queue, 1)
+        HC.log("[DRAIN] type cmd=\"" .. cmd .. "\"")
+        HC.typeString(cmd); sleep(70)
+        HC.tap(HC.ENTER); sleep(120)          -- execute (console stays open)
+      end
+      HC.tap(HC.GRAVE)                         -- close console once
+      HC.log("[DRAIN] done n=" .. n .. " (if one did nothing in-game, that command alias is wrong)")
+    end)
   end
 end
 
@@ -424,35 +446,47 @@ WC = nil
 {$lua}
 if syntaxcheck then return end
 if not (HC and HC.diag) then print("Activate the [ ACTIVATE FIRST ] engine first."); return end
+HC.errors = 0
 HC.diag()
 HC.log("Alt-Tab to HOI4 now; watching focus for ~8 seconds...")
 HC.dgN = 0
 HC.dgTested = false
+HC.dgFocusSeen = false
+HC.dgWSeen = false
 HC.dgTimer = createTimer(getMainForm())
 HC.dgTimer.Interval = 300
 HC.dgTimer.OnTimer = function(t)
   HC.dgN = HC.dgN + 1
   local f = HC.focused()
-  local wDown = (type(isKeyPressed) == "function") and tostring(isKeyPressed(0x57)) or "n/a"
-  HC.log("watch " .. HC.dgN .. ": focused=" .. tostring(f) .. "  isKeyPressed(W)=" .. wDown)
+  if f then HC.dgFocusSeen = true end
+  local w = (type(isKeyPressed) == "function") and isKeyPressed(0x57) or false
+  if w then HC.dgWSeen = true end
+  HC.log("[WATCH] n=" .. HC.dgN .. " focused=" .. tostring(f) .. " isKeyPressed_W=" .. tostring(w))
   if f and not HC.dgTested then
     HC.dgTested = true
-    HC.log("FOCUS DETECTED. WATCH THE GAME CLOSELY for the next ~10 seconds.")
-    HC.log("TEST A: arrow injection - holding UP arrow 0.8s. DOES THE MAP PAN UP?")
-    keyDown(0x26); sleep(800); keyUp(0x26)
-    HC.log("TEST B: trying console keys one at a time. WHICH number opens the console?")
-    local keys = { {0xC0, "grave ` ~ (US default)"}, {0xDE, "apostrophe ' #"},
-                   {0xDC, "backslash \\"}, {0xBF, "slash /"},
-                   {0xBA, "semicolon ;"}, {0x32, "the 2 key"} }
-    for i = 1, #keys do
-      HC.log("  console key " .. i .. ": VK 0x" .. string.format("%X", keys[i][1]) .. " = " .. keys[i][2] .. " (watch now)")
-      HC.tap(keys[i][1]); sleep(1100); HC.tap(keys[i][1]); sleep(800)
-    end
-    HC.log("TESTS DONE. TELL THE AGENT: (A) did the map pan up?  (B) which console-key number (if any) opened the console?")
+    HC.log("[TEST] focus ok - WATCH YOUR POLITICAL POWER for the next few seconds")
+    HC.try("test_arrow", function()
+      HC.log("[TEST] arrow: holding UP 0.8s - DOES THE MAP PAN UP?")
+      keyDown(0x26); sleep(800); keyUp(0x26)
+    end)
+    HC.try("test_console", function()
+      HC.log("[TEST] console: grave hold=" .. HC.HOLD .. "ms, then type 'pp 1' - DOES PP GO UP BY 1?")
+      HC.tap(HC.GRAVE); sleep(300)
+      HC.typeString("pp 1"); sleep(80)
+      HC.tap(HC.ENTER); sleep(120)
+      HC.tap(HC.GRAVE)
+    end)
   end
   if HC.dgN == 27 then
     t.destroy(); HC.dgTimer = nil
-    HC.log("===== diagnostics done. Read it: python3 tools/ce_log_watch.py =====")
+    HC.log(string.format(
+      "DIAGSUMMARY attached=%s api_fgwin=%s api_iskey=%s api_inputquery=%s api_timer=%s focus_seen=%s wkey_seen=%s errors=%d hold=%d gap=%d",
+      tostring((getOpenedProcessID() or 0) ~= 0),
+      type(getForegroundWindow), type(isKeyPressed), type(inputQuery), type(createTimer),
+      tostring(HC.dgFocusSeen == true), tostring(HC.dgWSeen == true),
+      HC.errors, HC.HOLD, HC.GAP))
+    HC.log("[DONE] read: python3 tools/ce_log_watch.py")
+    HC.log("[DONE] YOUR EYES: (A) did the map pan up?  (B) did PP go up by 1?  Tell the agent.")
   end
 end
 {$asm}
