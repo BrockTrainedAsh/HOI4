@@ -36,6 +36,20 @@ Next:
       once new patterns are confirmed, so rebuilding is one click.
 - [ ] Pointer-map doc: stable struct offsets vs. ones that drift between patches.
 - [ ] Per-version signature history in `data/` so we can diff what moved.
+- [x] **Agent "eyes" (done):** from WSL the agent runs Windows `python.exe`/`powershell.exe`
+      against the live game — reads/writes `hoi4.exe` memory (no admin) and captures +
+      OCRs the HUD (`tools/screencap.ps1`, `tools/ocr.ps1`). Used to **verify** a cheat
+      actually changed the value, instead of trusting a write syscall.
+- [ ] **Autonomous AOB + debugger (Option 2 — for features no table provides):** the
+      proven trainer method is AOB + code injection, not value-scanning or typing
+      (HOI4's displayed totals are *calculated*, so they can't be written directly; the
+      console can't be driven by synthetic keys). To build NEW cheats ourselves we need,
+      in the Python interop tools: (a) "find out what writes/accesses this address" via
+      hardware breakpoints (debug registers + a debug-event loop), and (b) code injection
+      (assemble a patch into a cave and hook the instruction). High-risk against a live
+      game; gate behind a verified backup/restore. Pairs with the OCR eyes for verify.
+      Until then, use a proven AOB table in Cheat Engine (Recifense), relocated per
+      `docs/CE-RELOCATION-1.19.md`.
 
 ## Track 2 — Mod maintenance
 
