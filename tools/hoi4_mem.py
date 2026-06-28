@@ -453,6 +453,22 @@ def autocheat(setval=None, mult=1000, iters=12):
     k32.CloseHandle(h)
 
 
+def freeze(addr, value, mult=1, secs=8):
+    """Continuously write value*mult to addr (faster than the game overwrites it).
+    If the bar value holds, the address feeds the display - a usable frozen cheat."""
+    k32, h, _ = attach(write=True)
+    p = struct.pack("<i", value * mult)
+    w = ctypes.c_size_t(0)
+    end = time.time() + secs
+    cnt = 0
+    while time.time() < end:
+        k32.WriteProcessMemory(h, ctypes.c_void_p(addr), p, 4, ctypes.byref(w))
+        cnt += 1
+        time.sleep(0.004)
+    log(f"FREEZE 0x{addr:X} = {value * mult} for {secs}s ({cnt} writes)")
+    k32.CloseHandle(h)
+
+
 def read_addr(addr, vtype):
     fmt, size = TYPES[vtype]
     k32, h, _ = attach()
@@ -472,10 +488,26 @@ def write_addr(addr, value, vtype):
     written = ctypes.c_size_t(0)
     ok = k32.WriteProcessMemory(h, ctypes.c_void_p(addr),
                                 packed, size, ctypes.byref(written))
-    if ok and written.value == size:
-        log(f"WROTE 0x{addr:X} {vtype}={value}")
+    if not (ok and written.value == size):
+        log(f"WRITE 0x{addr:X} FAILED at the syscall (err {ctypes.get_last_error()})")
+        k32.CloseHandle(h)
+        return
+    # Honest verification: the syscall succeeding means NOTHING. Read it back now,
+    # then again after a moment to see whether the game overwrote it (i.e. whether
+    # we own this address or the game does).
+    def _r():
+        d = read_bytes(k32, h, addr, size)
+        return struct.unpack(fmt, d)[0] if d and len(d) >= size else None
+    now = _r()
+    time.sleep(0.4)
+    later = _r()
+    if now == value and later == value:
+        log(f"WRITE 0x{addr:X} = {value}: VERIFIED (held 0.4s) - we own this address")
+    elif now == value and later != value:
+        log(f"WRITE 0x{addr:X} = {value}: REVERTED to {later} - the GAME owns this "
+            f"address; writing it does nothing. NOT a usable cheat target.")
     else:
-        log(f"WRITE 0x{addr:X} FAILED (err {ctypes.get_last_error()})")
+        log(f"WRITE 0x{addr:X} = {value}: read-back was {now} - the write did not even land.")
     k32.CloseHandle(h)
 
 
@@ -533,6 +565,9 @@ def main():
     ac.add_argument("--set", type=_int, default=None, dest="setval")
     ac.add_argument("--mult", type=int, default=1000)
     ac.add_argument("--iters", type=int, default=12)
+    fz = sub.add_parser("freeze", help="continuously write value*mult to addr for --secs")
+    fz.add_argument("addr", type=_int); fz.add_argument("value", type=_int)
+    fz.add_argument("--mult", type=int, default=1); fz.add_argument("--secs", type=int, default=8)
     args = ap.parse_args()
 
     if args.cmd == "info":
@@ -561,6 +596,8 @@ def main():
         autofind(args.lo, args.hi, args.secs, args.maxmb)
     elif args.cmd == "autocheat":
         autocheat(args.setval, args.mult, args.iters)
+    elif args.cmd == "freeze":
+        freeze(args.addr, args.value, args.mult, args.secs)
 
 
 if __name__ == "__main__":
