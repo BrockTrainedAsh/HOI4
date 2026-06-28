@@ -144,8 +144,19 @@ function HC.ensureDispatcher()
       HC._lastDispFocus = f
     end
     if not f then return end
-    local cmd = table.remove(HC.queue, 1)
-    HC.send(cmd)
+    -- Drain the WHOLE queue in ONE console session: open once, send every queued
+    -- command, close once. One Alt-Tab fires everything; no repeated clicking.
+    local n = #HC.queue
+    HC.log("draining " .. n .. " command(s) in one console session...")
+    HC.tap(HC.GRAVE); sleep(180)            -- open console once
+    while #HC.queue ~= 0 do
+      local cmd = table.remove(HC.queue, 1)
+      HC.log("  typing: " .. cmd)
+      HC.typeString(cmd); sleep(70)
+      HC.tap(HC.ENTER); sleep(120)          -- execute (console stays open)
+    end
+    HC.tap(HC.GRAVE)                         -- close console once
+    HC.log("drain complete (" .. n .. " sent). If one did nothing, that command alias is wrong - tell the agent.")
   end
 end
 
@@ -260,7 +271,7 @@ else print("Activate the Console Cheat Engine first.") end
         </CheatEntry>
         <CheatEntry>
           <ID>8</ID>
-          <Description>"Add Stability %  =  st [you enter]  (in-game ceiling 100)"</Description>
+          <Description>"Add Stability %  =  add_stability [you enter]/100  (in-game ceiling 100)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
@@ -268,7 +279,7 @@ else print("Activate the Console Cheat Engine first.") end
 if syntaxcheck then return end
 if HC and HC.run then
   local n = HC.askAmount("Stability", "Percent to add (in-game ceiling 100):", 50, 0, 100)
-  if n then HC.run("st " .. n) end
+  if n then HC.run("add_stability " .. (n / 100)) end
 else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
@@ -276,7 +287,7 @@ else print("Activate the Console Cheat Engine first.") end
         </CheatEntry>
         <CheatEntry>
           <ID>9</ID>
-          <Description>"Add War Support %  =  ws [you enter]  (in-game ceiling 100)"</Description>
+          <Description>"Add War Support %  =  add_war_support [you enter]/100  (in-game ceiling 100)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
@@ -284,7 +295,7 @@ else print("Activate the Console Cheat Engine first.") end
 if syntaxcheck then return end
 if HC and HC.run then
   local n = HC.askAmount("War Support", "Percent to add (in-game ceiling 100):", 50, 0, 100)
-  if n then HC.run("ws " .. n) end
+  if n then HC.run("add_war_support " .. (n / 100)) end
 else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
