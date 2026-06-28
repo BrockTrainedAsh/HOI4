@@ -10,16 +10,24 @@
       <AssemblerScript>{
  HOI4 Console Cheats - version-independent.
  Each child cheat sends an in-game console command by simulating keystrokes:
- it opens the console (` key), types the command, presses Enter, and closes it.
+ it opens the console (` key), types the command, presses Enter, closes it.
+
+ HOW TO USE (fixes the old "HOI4 is not the active window" problem):
+   1. Tick this engine.
+   2. Tick a cheat below.
+   3. ALT-TAB to HOI4. The command is QUEUED and fires automatically the moment
+      HOI4 becomes the active window - you no longer have to fight the focus.
+ Multiple ticked cheats are sent one at a time, in order.
+
  Works in any non-Ironman game (console is native). For Ironman, enable the
  console first with Fuwa's extension table, then use these.
- ACTIVATE THIS ENGINE, then tick a cheat. Keep HOI4 as the active window.
+ If the console does not open, set HC.GRAVE to your keyboard's console key.
 }
 [enable]
 {$lua}
 if syntaxcheck then return end
 HC = HC or {}
-HC.GRAVE = 0xC0   -- the ` / ~ key that opens the HOI4 console
+HC.GRAVE = 0xC0   -- the ` / ~ key that opens the HOI4 console (US layout)
 HC.ENTER = 0x0D
 HC.SHIFT = 0x10
 
@@ -29,9 +37,12 @@ for i = 0, 25 do HC.vk[string.char(97 + i)] = 0x41 + i end  -- a-z
 for i = 0, 9  do HC.vk[string.char(48 + i)] = 0x30 + i end  -- 0-9
 HC.shiftChars = { ["_"] = 0xBD }  -- underscore = Shift + '-'
 
+HC.queue = HC.queue or {}
+
+-- True only when the REAL foreground window belongs to hoi4.exe.
 function HC.focused()
   local okF, fg = pcall(getForegroundWindow)
-  if not okF or not fg or fg == 0 then return true end
+  if not okF or not fg or fg == 0 then return false end
   if type(getWindowProcessID) ~= "function" then return true end
   local okP, wpid = pcall(getWindowProcessID, fg)
   if not okP or not wpid then return true end
@@ -58,26 +69,48 @@ function HC.typeString(s)
   for i = 1, #s do HC.typeChar(string.sub(s, i, i)) end
 end
 
--- Send one console command.
-function HC.run(cmd)
-  if not HC.focused() then
-    print("[Console Cheats] HOI4 is not the active window - click the game, then retry.")
-    return false
-  end
+-- Actually push the keystrokes (assumes HOI4 is already focused).
+function HC.send(cmd)
   HC.tap(HC.GRAVE); sleep(140)   -- open console
   HC.typeString(cmd); sleep(90)
   HC.tap(HC.ENTER); sleep(90)    -- execute
   HC.tap(HC.GRAVE)               -- close console
   print("[Console Cheats] sent: " .. cmd)
+end
+
+-- One background dispatcher drains the queue, one command at a time, but only
+-- while HOI4 is the active window. This is what lets you tick-then-Alt-Tab.
+function HC.ensureDispatcher()
+  if HC.dispatcher then return end
+  HC.dispatcher = createTimer(getMainForm())
+  HC.dispatcher.Interval = 200
+  HC.dispatcher.OnTimer = function(timer)
+    if #HC.queue == 0 then return end
+    if not HC.focused() then return end
+    local cmd = table.remove(HC.queue, 1)
+    HC.send(cmd)
+  end
+end
+
+-- Child cheats call this. Queue the command; it fires when HOI4 is focused.
+function HC.run(cmd)
+  table.insert(HC.queue, cmd)
+  HC.ensureDispatcher()
+  if HC.focused() then
+    print("[Console Cheats] queued: " .. cmd)
+  else
+    print("[Console Cheats] queued: " .. cmd .. " - Alt-Tab to HOI4 to fire it.")
+  end
   return true
 end
 
-print("[Console Cheats] engine ready. Tick a cheat below to send its command.")
+print("[Console Cheats] engine ready. Tick a cheat, then Alt-Tab to HOI4.")
 {$asm}
 
 [disable]
 {$lua}
 if syntaxcheck then return end
+if HC and HC.dispatcher then HC.dispatcher.destroy() end
 HC = nil
 {$asm}
 </AssemblerScript>
@@ -226,6 +259,73 @@ if HC and HC.run then HC.run("allowdiplo") else print("Activate the Console Chea
 </AssemblerScript>
         </CheatEntry>
       </CheatEntries>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>13</ID>
+      <Description>"WASD Camera (toggle) - no AutoHotkey"</Description>
+      <Color>800080</Color>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>{
+ WASD map camera, done entirely in Cheat Engine (no AutoHotkey, no mod).
+ While this is ticked AND HOI4 is the active window, holding W/A/S/D pans the
+ map by holding the matching arrow key (W=Up, A=Left, S=Down, D=Right). Releasing
+ the key stops. It only acts while HOI4 is focused, and it does NOT consume the
+ keys elsewhere - so Alt-Tab out and W/A/S/D type normally again.
+
+ Note: while ticked, W/A/S/D also move the camera inside in-game text boxes
+ (console / state search). Untick this entry when you need to type in HOI4.
+}
+[enable]
+{$lua}
+if syntaxcheck then return end
+WC = WC or {}
+-- {physical key, arrow it maps to}: W->Up, A->Left, S->Down, D->Right
+WC.MAP = { {0x57, 0x26}, {0x41, 0x25}, {0x53, 0x28}, {0x44, 0x27} }
+WC.held = {}
+
+function WC.focused()
+  local okF, fg = pcall(getForegroundWindow)
+  if not okF or not fg or fg == 0 then return false end
+  if type(getWindowProcessID) ~= "function" then return false end
+  local okP, wpid = pcall(getWindowProcessID, fg)
+  if not okP or not wpid then return false end
+  return wpid == getOpenedProcessID()
+end
+
+WC.timer = createTimer(getMainForm())
+WC.timer.Interval = 15
+WC.timer.OnTimer = function(timer)
+  local active = WC.focused()
+  for i = 1, #WC.MAP do
+    local letter = WC.MAP[i][1]
+    local arrow  = WC.MAP[i][2]
+    local pressed = active and isKeyPressed(letter)
+    if pressed and not WC.held[arrow] then
+      keyDown(arrow); WC.held[arrow] = true
+    elseif (not pressed) and WC.held[arrow] then
+      keyUp(arrow); WC.held[arrow] = false
+    end
+  end
+end
+
+print("[WASD] camera ON - hold W/A/S/D to pan while HOI4 is focused. Untick to type.")
+{$asm}
+
+[disable]
+{$lua}
+if syntaxcheck then return end
+if WC then
+  if WC.timer then WC.timer.destroy(); WC.timer = nil end
+  for i = 1, #(WC.MAP or {}) do
+    local arrow = WC.MAP[i][2]
+    if WC.held and WC.held[arrow] then keyUp(arrow) end
+  end
+  WC.held = {}
+  print("[WASD] camera OFF.")
+end
+WC = nil
+{$asm}
+</AssemblerScript>
     </CheatEntry>
   </CheatEntries>
 </CheatTable>
