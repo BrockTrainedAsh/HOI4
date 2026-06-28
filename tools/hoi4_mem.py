@@ -31,6 +31,7 @@ Examples:
   python hoi4_mem.py write 0x1A2B3C4D0 5000000
 """
 import argparse
+import array
 import ctypes
 import json
 import struct
@@ -41,6 +42,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOGFILE = ROOT / "logs" / "hoi4_mem.log"
 CANDFILE = ROOT / "logs" / "hoi4_mem_candidates.json"
+RANGEFILE = ROOT / "logs" / "hoi4_mem_range.json"
 MAX_CANDS = 400_000
 CHUNK = 4 * 1024 * 1024
 
@@ -234,6 +236,68 @@ def narrow(value):
     k32.CloseHandle(h)
 
 
+def range_scan(lo, hi):
+    """Find every 4-aligned int32 in [lo, hi] - handles hidden decimals (a value
+    shown as 37 but stored x1000 is really 37000-37999). Saves {addr:value} pairs."""
+    k32, h, _ = attach()
+    t0 = time.time()
+    out = []
+    for base, rsize, _p in iter_regions(k32, h):
+        off = 0
+        while off < rsize:
+            n = min(CHUNK, rsize - off)
+            d = read_bytes(k32, h, base + off, n)
+            if d:
+                arr = array.array("i")
+                arr.frombytes(d[:len(d) // 4 * 4])
+                out.extend([base + off + i * 4, v] for i, v in enumerate(arr) if lo <= v <= hi)
+            off += n
+            if len(out) > MAX_CANDS:
+                log("range too common - hit cap; pick a more distinctive value")
+                break
+        if len(out) > MAX_CANDS:
+            break
+    RANGEFILE.write_text(json.dumps({"pairs": out}))
+    log(f"RANGESCAN lo={lo} hi={hi} candidates={len(out)} elapsed={time.time() - t0:.1f}s")
+    if len(out) <= 30:
+        for a, v in sorted(out):
+            log(f"  0x{a:X} = {v}")
+    k32.CloseHandle(h)
+
+
+def _load_range():
+    return json.loads(RANGEFILE.read_text())["pairs"]
+
+
+def range_op(op, lo=None, hi=None):
+    """Narrow saved candidates: op 'between' (lo..hi) or 'up'/'down'/'same'/'changed'."""
+    k32, h, _ = attach()
+    out = []
+    for a, ov in _load_range():
+        d = read_bytes(k32, h, a, 4)
+        if not d:
+            continue
+        v = struct.unpack("<i", d)[0]
+        keep = ((op == "between" and lo <= v <= hi) or (op == "up" and v > ov)
+                or (op == "down" and v < ov) or (op == "same" and v == ov)
+                or (op == "changed" and v != ov))
+        if keep:
+            out.append([a, v])
+    RANGEFILE.write_text(json.dumps({"pairs": out}))
+    log(f"RANGE {op} lo={lo} hi={hi} -> {len(out)} candidates")
+    if len(out) <= 30:
+        for a, v in sorted(out):
+            log(f"  0x{a:X} = {v}")
+    k32.CloseHandle(h)
+
+
+def range_peek():
+    pairs = _load_range()
+    print(f"{len(pairs)} candidates")
+    for a, v in sorted(pairs)[:40]:
+        print(f"  0x{a:X} = {v}")
+
+
 def read_addr(addr, vtype):
     fmt, size = TYPES[vtype]
     k32, h, _ = attach()
@@ -299,6 +363,13 @@ def main():
     w = sub.add_parser("write", help="write a value to an address")
     w.add_argument("addr", type=_int); w.add_argument("value", type=_int)
     w.add_argument("--type", default="i32", choices=TYPES)
+    rs = sub.add_parser("rangescan", help="range scan [lo,hi] (handles x1000 decimals)")
+    rs.add_argument("lo", type=_int); rs.add_argument("hi", type=_int)
+    rn = sub.add_parser("rangenext", help="narrow range candidates to [lo,hi]")
+    rn.add_argument("lo", type=_int); rn.add_argument("hi", type=_int)
+    sub.add_parser("rangeup", help="narrow range candidates to those that increased")
+    sub.add_parser("rangedown", help="narrow range candidates to those that decreased")
+    sub.add_parser("rangepeek", help="list current range candidates")
     args = ap.parse_args()
 
     if args.cmd == "info":
@@ -313,6 +384,16 @@ def main():
         read_addr(args.addr, args.type)
     elif args.cmd == "write":
         write_addr(args.addr, args.value, args.type)
+    elif args.cmd == "rangescan":
+        range_scan(args.lo, args.hi)
+    elif args.cmd == "rangenext":
+        range_op("between", args.lo, args.hi)
+    elif args.cmd == "rangeup":
+        range_op("up")
+    elif args.cmd == "rangedown":
+        range_op("down")
+    elif args.cmd == "rangepeek":
+        range_peek()
 
 
 if __name__ == "__main__":

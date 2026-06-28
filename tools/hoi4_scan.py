@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """
-hoi4_scan.py - interactive, guided HOI4 memory scanner. Run it and follow the
-prompts; no Python knowledge or code-pasting needed.
+hoi4_scan.py - interactive, guided HOI4 memory scanner. Run it, follow the prompts.
 
 Run from Windows PowerShell, AS ADMINISTRATOR, with HOI4 running and a save loaded:
-    cd "C:\\Users\\Brock\\Documents\\My Cheat Tables\\HOI4-Memory-Toolkit"
-    python tools\\hoi4_scan.py
+    python "C:\\Users\\Brock\\Documents\\My Cheat Tables\\HOI4-Memory-Toolkit\\tools\\hoi4_scan.py"
 
-It does Cheat Engine's value-scan in a guided loop: type a number you can read off
-the HOI4 UI; it finds every matching address; change the number in-game and type the
-new value to narrow down until one address remains; then set it.
-Multipliers (triangulated from proven tables): Political Power & Stability x1000,
-Army/Navy/Air XP x32768. Every step is logged to logs/hoi4_scan.log.
+KEY IDEA - displayed numbers hide decimals. HOI4 stores Political Power x1000, so
+"7 PP" on the bar is really 7000-7999 in memory (7.34 PP = 7340). So we scan a
+RANGE, not an exact value, and then narrow with 'up'/'down' as the value changes -
+which never needs the exact number. Multipliers (triangulated from proven tables):
+Political Power & Stability x1000, Army/Navy/Air XP x32768, Manpower x1.
+
+Everything is logged to logs/hoi4_scan.log.
 """
+import array
 import ctypes
+import json
 import struct
 import sys
 import time
 from pathlib import Path
 
 LOG = Path(__file__).resolve().parent.parent / "logs" / "hoi4_scan.log"
+CAND = Path(__file__).resolve().parent.parent / "logs" / "hoi4_candidates.json"
 
 
 def log(m):
@@ -29,6 +32,15 @@ def log(m):
         LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def save_cands(cands, mult):
+    """Persist the current candidate addresses so hoi4_watch.py can watch them."""
+    try:
+        CAND.parent.mkdir(parents=True, exist_ok=True)
+        CAND.write_text(json.dumps({"mult": mult, "addrs": sorted(int(a) for a in cands)}))
     except OSError:
         pass
 
@@ -100,35 +112,59 @@ def read(h, a, n):
     return None
 
 
-def first_scan(h, v):
-    p = struct.pack("<i", v)
-    out = []
+def range_scan(h, lo, hi):
+    """Find all 4-byte-aligned int32 values in [lo, hi]. Returns {addr: value}."""
+    out = {}
     t = time.time()
+    done_mb = 0
     for b, r in regions(h):
         o = 0
         while o < r:
             n = min(4194304, r - o)
             d = read(h, b + o, n)
             if d:
-                i = d.find(p)
-                while i >= 0:
-                    out.append(b + o + i)
-                    i = d.find(p, i + 1)
-            o += n - 3 if n == 4194304 else n
+                cnt = len(d) // 4
+                arr = array.array("i")
+                arr.frombytes(d[:cnt * 4])
+                out.update((b + o + i * 4, v) for i, v in enumerate(arr) if lo <= v <= hi)
+                done_mb += n // (1024 * 1024)
+            o += n
             if len(out) > 400000:
-                break
-        if len(out) > 400000:
-            break
-    out = sorted(set(out))
-    log(f"scan {v} -> {len(out)} hits in {time.time() - t:.1f}s")
+                log("hit 400k cap - value too common; pick a more distinctive number")
+                return out, time.time() - t
+    return out, time.time() - t
+
+
+def narrow_range(h, cands, lo, hi):
+    out = {}
+    for a in cands:
+        d = read(h, a, 4)
+        if d:
+            v = struct.unpack("<i", d)[0]
+            if lo <= v <= hi:
+                out[a] = v
     return out
 
 
-def narrow(h, cands, v):
-    p = struct.pack("<i", v)
-    out = [a for a in cands if read(h, a, 4) == p]
-    log(f"narrow {v} -> {len(out)} hits")
+def narrow_cmp(h, cands, mode):
+    out = {}
+    for a, old in cands.items():
+        d = read(h, a, 4)
+        if not d:
+            continue
+        v = struct.unpack("<i", d)[0]
+        keep = ((mode == "up" and v > old) or (mode == "down" and v < old)
+                or (mode == "same" and v == old) or (mode == "changed" and v != old))
+        if keep:
+            out[a] = v
     return out
+
+
+def show(cands, mult):
+    items = sorted(cands.items())
+    if len(items) <= 25:
+        for a, v in items:
+            print(f"    0x{a:X} = {v}  (~{v / mult:.3f})")
 
 
 def main():
@@ -137,44 +173,61 @@ def main():
         sys.exit("hoi4.exe not running - launch the game and load a save first.")
     h = k.OpenProcess(0x1F0FFF, False, pid)
     if not h:
-        sys.exit("OpenProcess failed - close this, RIGHT-CLICK PowerShell, 'Run as administrator', retry.")
+        sys.exit("OpenProcess failed - close this, run PowerShell as Administrator, retry.")
     log(f"attached to hoi4.exe pid={pid}")
-    print("\nMultipliers: Political Power & Stability = x1000, Army/Navy/Air XP = x32768.")
-    print("Example: 247 Political Power -> type 247000.\n")
+    print("\nMultipliers: Political Power & Stability x1000, XP x32768, Manpower x1.")
     try:
-        v = int(input("Value to search for (number x multiplier): ").strip())
+        disp = int(input("Current displayed value (e.g. Political Power = 7): ").strip())
+        mult = int((input("Multiplier [Enter = 1000]: ").strip() or "1000"))
     except ValueError:
         sys.exit("not a number")
-    print("scanning, please wait (a few seconds)...")
-    cands = first_scan(h, v)
-    shown = str([hex(a) for a in cands]) if len(cands) <= 12 else "(change it in-game, then narrow)"
-    print(f"-> {len(cands)} candidate addresses. {shown}")
-    while True:
-        print("\nChange that value IN-GAME, then type its NEW number to narrow it down.")
-        s = input("New value  |  'w 5000000' to set the single address  |  'q' to quit: ").strip()
-        if s.lower() in ("q", "quit", ""):
+    lo, hi = disp * mult, (disp + 1) * mult - 1
+    print(f"scanning for any value in [{lo}, {hi}] - please wait (can take ~1 min)...")
+    cands, secs = range_scan(h, lo, hi)
+    log(f"range scan [{lo},{hi}] -> {len(cands)} candidates in {secs:.0f}s")
+    show(cands, mult)
+    while len(cands) != 0:
+        print("\nNarrow it down. Best method: change the value IN-GAME, then:")
+        print("  up / down   = keep addresses whose value increased / decreased")
+        print("  <number>    = new displayed value (range narrow, e.g. PP is now 9 -> type 9)")
+        print("  w <number>  = SET the value (only when 1 candidate left), e.g. w 5000")
+        print("  l = list,  q = quit")
+        s = input("> ").strip().lower()
+        if s in ("q", "quit", ""):
             break
-        if s.lower().startswith("w "):
+        if s == "l":
+            show(cands, mult)
+            continue
+        if s in ("up", "down", "same", "changed"):
+            cands = narrow_cmp(h, cands, s)
+        elif s.startswith("w "):
             try:
-                val = int(s[2:].strip())
+                target = int(s[2:].strip())
             except ValueError:
-                print("bad write value")
+                print("bad value")
                 continue
             if len(cands) != 1:
                 print(f"refusing: {len(cands)} candidates - narrow to exactly 1 first.")
                 continue
+            addr = next(iter(cands))
             w = ST(0)
-            ok = k.WriteProcessMemory(h, ctypes.c_void_p(cands[0]), struct.pack("<i", val), 4, ctypes.byref(w))
-            log(f"WRITE {hex(cands[0])} = {val} -> {'OK' if ok and w.value == 4 else 'FAILED'}")
+            ok = k.WriteProcessMemory(h, ctypes.c_void_p(addr),
+                                      struct.pack("<i", target * mult), 4, ctypes.byref(w))
+            log(f"WRITE 0x{addr:X} = {target * mult} ({target}) -> "
+                f"{'OK' if ok and w.value == 4 else 'FAILED err ' + str(ctypes.get_last_error())}")
             continue
-        try:
-            nv = int(s)
-        except ValueError:
-            print("enter a number, 'w VALUE', or 'q'")
-            continue
-        cands = narrow(h, cands, nv)
-        shown = str([hex(a) for a in cands]) if len(cands) <= 20 else ""
-        print(f"-> {len(cands)} candidates. {shown}")
+        else:
+            try:
+                nd = int(s)
+            except ValueError:
+                print("type up / down / a number / 'w <n>' / q")
+                continue
+            cands = narrow_range(h, cands, nd * mult, (nd + 1) * mult - 1)
+        log(f"-> {len(cands)} candidates")
+        show(cands, mult)
+    if len(cands) == 0:
+        print("0 candidates - the value moved out of every tracked range. Re-run and use "
+              "'up'/'down' instead of typing exact numbers (more robust to decimals).")
     k.CloseHandle(h)
     print("done. Full log: logs/hoi4_scan.log")
 
