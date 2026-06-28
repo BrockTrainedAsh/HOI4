@@ -1,0 +1,16 @@
+# Normalize line endings so cross-platform clones stay clean and the CRLF
+# warnings on commit go away.
+* text=auto eol=lf
+
+# Windows-native files keep CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.CT  text eol=crlf
+
+# Code stays LF
+*.py  text eol=lf
+*.lua text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
+*.toml text eol=lf

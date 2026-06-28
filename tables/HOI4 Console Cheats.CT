@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="42">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>1</ID>
+      <Description>"[ ACTIVATE FIRST ] Console Cheat Engine"</Description>
+      <Options moHideChildren="1"/>
+      <Color>0000FF</Color>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>{
+ HOI4 Console Cheats - version-independent.
+ Each child cheat sends an in-game console command by simulating keystrokes:
+ it opens the console (` key), types the command, presses Enter, and closes it.
+ Works in any non-Ironman game (console is native). For Ironman, enable the
+ console first with Fuwa's extension table, then use these.
+ ACTIVATE THIS ENGINE, then tick a cheat. Keep HOI4 as the active window.
+}
+[enable]
+{$lua}
+if syntaxcheck then return end
+HC = HC or {}
+HC.GRAVE = 0xC0   -- the ` / ~ key that opens the HOI4 console
+HC.ENTER = 0x0D
+HC.SHIFT = 0x10
+
+-- character -> virtual key code (covers what console commands need)
+HC.vk = { [" "] = 0x20, ["."] = 0xBE, ["-"] = 0xBD, ["/"] = 0xBF }
+for i = 0, 25 do HC.vk[string.char(97 + i)] = 0x41 + i end  -- a-z
+for i = 0, 9  do HC.vk[string.char(48 + i)] = 0x30 + i end  -- 0-9
+HC.shiftChars = { ["_"] = 0xBD }  -- underscore = Shift + '-'
+
+function HC.focused()
+  local okF, fg = pcall(getForegroundWindow)
+  if not okF or not fg or fg == 0 then return true end
+  if type(getWindowProcessID) ~= "function" then return true end
+  local okP, wpid = pcall(getWindowProcessID, fg)
+  if not okP or not wpid then return true end
+  return wpid == getOpenedProcessID()
+end
+
+function HC.tap(vk)
+  keyDown(vk); sleep(12); keyUp(vk); sleep(14)
+end
+
+function HC.typeChar(c)
+  local sv = HC.shiftChars[c]
+  if sv then
+    keyDown(HC.SHIFT); sleep(8)
+    keyDown(sv); sleep(12); keyUp(sv); sleep(8)
+    keyUp(HC.SHIFT); sleep(12)
+    return
+  end
+  local vk = HC.vk[c]
+  if vk then HC.tap(vk) end
+end
+
+function HC.typeString(s)
+  for i = 1, #s do HC.typeChar(string.sub(s, i, i)) end
+end
+
+-- Send one console command.
+function HC.run(cmd)
+  if not HC.focused() then
+    print("[Console Cheats] HOI4 is not the active window - click the game, then retry.")
+    return false
+  end
+  HC.tap(HC.GRAVE); sleep(140)   -- open console
+  HC.typeString(cmd); sleep(90)
+  HC.tap(HC.ENTER); sleep(90)    -- execute
+  HC.tap(HC.GRAVE)               -- close console
+  print("[Console Cheats] sent: " .. cmd)
+  return true
+end
+
+print("[Console Cheats] engine ready. Tick a cheat below to send its command.")
+{$asm}
+
+[disable]
+{$lua}
+if syntaxcheck then return end
+HC = nil
+{$asm}
+</AssemblerScript>
+      <CheatEntries>
+        <CheatEntry>
+          <ID>2</ID>
+          <Description>"Instant Construction (toggle)  =  instantconstruction"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("instantconstruction") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>3</ID>
+          <Description>"Instant National Focus (toggle)  =  focus.autocomplete"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("focus.autocomplete") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>4</ID>
+          <Description>"Complete All Research  =  research all"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("research all") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>5</ID>
+          <Description>"+1000 Political Power  =  pp 1000  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("pp 1000") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>6</ID>
+          <Description>"+100000 Manpower  =  manpower 100000  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("manpower 100000") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>7</ID>
+          <Description>"+1000 Army/Navy/Air XP  =  xp 1000  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("xp 1000") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>8</ID>
+          <Description>"+50 Stability percent  =  st 50  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("st 50") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>9</ID>
+          <Description>"+50 War Support percent  =  ws 50  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("ws 50") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>10</ID>
+          <Description>"+50 Nukes  =  nuke 50  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("nuke 50") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>11</ID>
+          <Description>"+1000 Convoys  =  add_equipment 1000 convoy  (re-tick to repeat)"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("add_equipment 1000 convoy") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+        <CheatEntry>
+          <ID>12</ID>
+          <Description>"Allow Free Diplomacy (toggle)  =  allowdiplo"</Description>
+          <Color>008000</Color>
+          <VariableType>Auto Assembler Script</VariableType>
+          <AssemblerScript>[enable]
+{$lua}
+if syntaxcheck then return end
+if HC and HC.run then HC.run("allowdiplo") else print("Activate the Console Cheat Engine first.") end
+{$asm}
+[disable]
+</AssemblerScript>
+        </CheatEntry>
+      </CheatEntries>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>

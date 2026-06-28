@@ -1,0 +1,20 @@
+{
+  "folders": [
+    { "path": "." }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.CT": "xml",
+      "*.mod": "plaintext"
+    },
+    "terminal.integrated.cwd": "${workspaceFolder}"
+  },
+  "extensions": {
+    "recommendations": [
+      "anthropic.claude-code",
+      "ms-python.python",
+      "sumneko.lua",
+      "charliermarsh.ruff"
+    ]
+  }
+}

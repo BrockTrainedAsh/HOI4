@@ -1,0 +1,34 @@
+# --- HOI4 toolkit ignores ---
+
+# Local machine-specific config (paths differ per user)
+local.config.lua
+*.local
+
+# Generated / scratch output
+out/
+build/
+*.log
+logs/
+crash-collected/
+
+# Copies of game data captured for diffing (can be huge / copyrighted)
+vanilla-snapshot/
+mods-snapshot/
+*.dmp
+
+# Cheat Engine churn
+*.CT.bak
+*.bak
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
