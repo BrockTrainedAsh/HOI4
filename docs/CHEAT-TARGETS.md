@@ -18,6 +18,12 @@ Two routes to each cheat:
 > Console command *names* drift between versions — verify syntax in-game before
 > relying on it. Names below are best-known, not guaranteed for 1.19.
 
+> **Machine-readable catalog:** `data/wemod_targets.json` (regenerate with
+> `python3 tools/extract_baseline.py --targets-only`) is the source of truth for the
+> route/baseline/console of every target. The per-feature Cheat Engine checklist is
+> `docs/CE-RELOCATION-1.19.md` §6. The symbols below are approximate; the catalog
+> uses the authoritative `MO**` Recifense symbols.
+
 ## Player
 
 | Feature | Baseline sym | Route | Status | Notes |
@@ -42,6 +48,7 @@ Two routes to each cheat:
 | Instant Intel Op Execute | OPH | memory | baseline-known | |
 | Unlimited Breakthroughs | — | memory | NEW target | combat stat |
 | Instant Prototype | — | memory | NEW target | |
+| Instant Special Project (radar, jets, nukes facility) | — | memory | NEW target | AAT facility research; `complete_special_project` is script-only (no console) → CE memory cheat. Scan the project's progress value. |
 | Instant Intel Decrypting | MDP | memory | baseline-known | |
 
 ## Stats

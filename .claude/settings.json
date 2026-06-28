@@ -5,7 +5,7 @@
       {
         "matcher": "Bash|Write|Edit|Agent",
         "hooks": [
-          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_tool.py\"" }
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_tool.py\"" }
         ]
       }
     ]

@@ -16,7 +16,7 @@ Paths:
 - Vanilla:  F:/SteamLibrary/steamapps/common/Hearts of Iron IV
 
 ## Phase 0 - Verify environment (sequential)
-- Confirm `python --version` works and the tools/ scripts exist.
+- Confirm `python3 --version` works and the tools/ scripts exist.
 - Confirm the subagents (log-watcher, error-fixer, signature-finder) and the slash
   commands (/watch-logs, /scan-conflicts, /bump-versions, /healthcheck) are available.
 

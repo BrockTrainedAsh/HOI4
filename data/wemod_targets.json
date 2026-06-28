@@ -1,0 +1,302 @@
+{
+  "generated": "2026-06-28",
+  "targets": [
+    {
+      "feature": "Fast Research",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MORP",
+      "offset": null,
+      "console": "research_on_icon_click",
+      "notes": ""
+    },
+    {
+      "feature": "Super Production (equipment + ships)",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOPP",
+      "offset": null,
+      "console": null,
+      "notes": "ships share MPP1; no clean console command"
+    },
+    {
+      "feature": "Fast Construction",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOCP",
+      "offset": null,
+      "console": "instantconstruction",
+      "notes": "console toggle builds instantly incl. ships"
+    },
+    {
+      "feature": "Set Command Power",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.command_power",
+      "console": "add_command_power <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited Convoy",
+      "route": "console",
+      "status": "console",
+      "baseline": null,
+      "offset": null,
+      "console": "add_equipment <n> convoy",
+      "notes": ""
+    },
+    {
+      "feature": "Fast National Focus",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOFP",
+      "offset": null,
+      "console": "focus.autocomplete",
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited Resources",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOMR",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited Organization (standalone)",
+      "route": "memory",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": null,
+      "notes": "WeMod splits this out from God Mode; relates to GDMD org write"
+    },
+    {
+      "feature": "Unlimited Vehicles Fuel",
+      "route": "memory+console",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": "fuel?",
+      "notes": "verify console command for 1.19"
+    },
+    {
+      "feature": "God Mode (army + ships)",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "GDMD",
+      "offset": null,
+      "console": null,
+      "notes": "also GMDS (ship strength) + GDS2 (ship org)"
+    },
+    {
+      "feature": "Instant Movement",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOAM",
+      "offset": null,
+      "console": null,
+      "notes": "also MAM1 during battle"
+    },
+    {
+      "feature": "Enable Ironman Console",
+      "route": "external",
+      "status": "external",
+      "baseline": null,
+      "offset": null,
+      "console": null,
+      "notes": "use Fuwa's Ironman-enabler extension table"
+    },
+    {
+      "feature": "Instant Agency Construction",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOAC",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Instant Agency Upgrade",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOAU",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Instant Agency Operatives",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOOR",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Instant Intel Network",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MONP",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Instant Intel Ops Prepare",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOOP",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Instant Intel Op Execute",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MOPH",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Instant Intel Decrypting",
+      "route": "memory",
+      "status": "baseline",
+      "baseline": "MODP",
+      "offset": null,
+      "console": null,
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited Breakthroughs",
+      "route": "memory",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": null,
+      "notes": "combat stat, no baseline"
+    },
+    {
+      "feature": "Instant Special Project / Prototype (radar, jets, etc.)",
+      "route": "memory",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": null,
+      "notes": "AAT facility research. complete_special_project is a script-only effect (no console command), so this is a CE memory cheat: scan the project's progress value."
+    },
+    {
+      "feature": "Set Army Exp",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.army_xp",
+      "console": "xp <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Set Navy Exp",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.navy_xp",
+      "console": "xp <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Set Air Exp",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.air_xp",
+      "console": "xp <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited Nukes",
+      "route": "console",
+      "status": "console",
+      "baseline": null,
+      "offset": null,
+      "console": "add_nukes <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited ManPower",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOMM",
+      "offset": null,
+      "console": "add_manpower <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Set Political Power",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.political_power",
+      "console": "add_political_power <n>",
+      "notes": ""
+    },
+    {
+      "feature": "Unlimited Stability",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.stability",
+      "console": "add_stability <n>",
+      "notes": ""
+    },
+    {
+      "feature": "War Support",
+      "route": "memory+console",
+      "status": "baseline",
+      "baseline": "MOHP",
+      "offset": "player.war_support",
+      "console": "add_war_support <n>",
+      "notes": ""
+    },
+    {
+      "feature": "No World Tension",
+      "route": "memory+console",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": "set_worldtension <0-1>?",
+      "notes": "verify console command for 1.19"
+    },
+    {
+      "feature": "Low Occupation Resistance",
+      "route": "memory+console",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": "resistance?",
+      "notes": "verify console command for 1.19"
+    },
+    {
+      "feature": "Instant War Goal",
+      "route": "console",
+      "status": "console",
+      "baseline": null,
+      "offset": null,
+      "console": "add_wargoal <target>",
+      "notes": "likely console-only"
+    },
+    {
+      "feature": "Fast Recruiting",
+      "route": "memory",
+      "status": "new",
+      "baseline": null,
+      "offset": null,
+      "console": null,
+      "notes": ""
+    }
+  ]
+}

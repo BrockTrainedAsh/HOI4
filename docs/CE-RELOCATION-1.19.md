@@ -210,3 +210,50 @@ out of a Recifense-style `.CT`).
    `Resolved 26/26  Missing 0  Ambiguous 0`.
 5. Keep the old 1.11.10 catalog in git history so a diff shows exactly which
    patterns/offsets 1.19 moved.
+
+---
+
+## 6. WeMod feature coverage checklist
+
+The WeMod/MrAntiFun feature wishlist (`docs/CHEAT-TARGETS.md`) is now a machine-
+readable catalog: **`data/wemod_targets.json`** (refresh with
+`python tools/extract_baseline.py --targets-only`). 33 targets: **22 baseline**
+(relocate), **7 new** (find), **3 console**, **1 external**. Tick each off here as
+`healthcheck.lua` turns it `[ ok ]`.
+
+### 6a. Baseline — relocate (signatures already exist)
+
+**pPlayer-offset cheats — ALL resolve the moment MOHP is relocated (§3), no extra
+AOB.** Verify each by reading the offset off the recovered `pPlayer`:
+- [ ] Set Political Power `[[pPlayer+0xEA0]+0xC8]`  · Unlimited Stability `[pPlayer+0xFA8]`
+- [ ] War Support `[pPlayer+0xFAC]`  · Set Command Power `[pPlayer+0x1C4]`
+- [ ] Set Army/Navy/Air Exp `[pPlayer+0x1E0 / 0x1F8 / 0x210]`
+
+**Own code scans — each gets its own `aobgen.lua` pass (§3c) when healthcheck flags
+it:**
+- [ ] Fast Research (MORP) · Super Production (MOPP + MPP1 ships) · Fast Construction (MOCP)
+- [ ] Fast National Focus (MOFP) · Unlimited Resources (MOMR) · Unlimited ManPower (MOMM)
+- [ ] Instant Movement (MOAM + MAM1) · God Mode (GDMD + GMDS + GDS2)
+- [ ] La Resistance intel/agency: MOAC · MOAU · MOOR · MONP · MOOP · MOPH · MODP
+
+### 6b. New targets — find from scratch (value-scan → "what writes" → `aobgen.lua`)
+
+No baseline signature. For each: guided value scan (`find_player_base.lua` style) on
+the in-game value, "Find out what writes", then mint an AOB (§3c). Anchors:
+- [ ] **Unlimited Organization** — division org (float); sits near the God Mode org
+  write (GDMD), so check that hook first.
+- [ ] **Unlimited Breakthroughs** — combat modifier; scan during a battle.
+- [ ] **Instant Prototype** — special-project/prototype progress bar value.
+- [ ] **Unlimited Vehicles Fuel** — army/fleet fuel pool value.
+- [ ] **No World Tension** — single global `world_tension` (float 0–100); easy scan.
+- [ ] **Low Occupation Resistance** — a state's resistance %.
+- [ ] **Fast Recruiting** — recruitable manpower / training progress.
+
+### 6c. Console quick-wins (no memory work; non-Ironman, or Ironman via Fuwa)
+
+Ship as console-button entries; **verify the command name in-game for 1.19** (names
+drift). Full list with commands is in `data/wemod_targets.json`.
+- [ ] Unlimited Convoy — `add_equipment <n> convoy`
+- [ ] Unlimited Nukes — `add_nukes <n>`
+- [ ] Instant War Goal — `add_wargoal <target>`
+- [ ] (every `memory+console` row above also carries a console command in the catalog)

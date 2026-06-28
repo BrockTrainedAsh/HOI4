@@ -6,8 +6,16 @@ Parses a Recifense-style Cheat Engine table (.CT) and pulls out every
 AOBScanModule(symbol, $process, pattern) entry, pairing each symbol with a
 human-readable feature description. Emits:
 
-    data/signatures.lua   - canonical catalog consumed by the CE Lua scripts
-    data/signatures.json  - same data, portable for tooling / diffing
+    data/signatures.lua    - canonical catalog consumed by the CE Lua scripts
+    data/signatures.json   - same data, portable for tooling / diffing
+    data/wemod_targets.lua  - the WeMod feature wishlist + coverage map
+    data/wemod_targets.json - same, portable
+
+The WeMod target map (WEMOD_TARGETS below) is the toolkit's goal list: every
+cheat from the WeMod/MrAntiFun HOI4 trainer (see docs/CHEAT-TARGETS.md), mapped
+to the Recifense baseline symbol and/or in-game console command that implements
+it. It is STATIC (no game files, no copying WeMod's code) so it can be emitted
+without a .CT via --targets-only.
 
 This is a *build-time* helper. The live memory-finding tools are Lua (see lua/).
 You only re-run this when you want to regenerate the baseline from a known-good
@@ -15,7 +23,8 @@ table for a new game version.
 
 Usage:
     python tools/extract_baseline.py "../Hearts of Iron IV.CT"
-    python tools/extract_baseline.py path/to/table.CT --game-version 1.11.10
+    python tools/extract_baseline.py path/to/table.CT --game-version 1.19.1
+    python tools/extract_baseline.py --targets-only      # just the WeMod catalog
 """
 import argparse
 import json
@@ -71,6 +80,91 @@ KNOWN_OFFSETS = {
     "player.field_EA0":       "pPlayer+0xEA0 -> sub-object holding PP at +0xC8",
 }
 
+# --------------------------------------------------------------------------- #
+# WeMod feature wishlist -> implementation route (docs/CHEAT-TARGETS.md).
+#
+# Each target says HOW we intend to deliver that cheat:
+#   route    : "memory" | "console" | "memory+console" | "external"
+#   baseline : Recifense scan symbol that implements it (matches FEATURES /
+#              data/signatures), or "" if it hangs off pPlayer via an offset,
+#              or None for a brand-new target with no baseline yet.
+#   offset   : KNOWN_OFFSETS key when the cheat is just a pPlayer field write.
+#   console  : best-known HOI4 console command (NAMES DRIFT between patches --
+#              always verify in-game; "?" suffix = unverified for 1.19).
+#   status   : "baseline" (signature exists, just relocate) |
+#              "new"      (no baseline signature, find from scratch in CE) |
+#              "console"  (ship as a console helper, no memory work needed) |
+#              "external" (provided by another tool, e.g. Fuwa's Ironman enabler)
+#
+# We use WeMod's feature *list* as a checklist only. No WeMod code/signatures.
+# --------------------------------------------------------------------------- #
+def _t(feature, route, status, baseline=None, offset=None, console=None, notes=""):
+    return {"feature": feature, "route": route, "status": status,
+            "baseline": baseline, "offset": offset, "console": console, "notes": notes}
+
+WEMOD_TARGETS = [
+    # --- Player ---
+    _t("Fast Research", "memory+console", "baseline", baseline="MORP",
+       console="research_on_icon_click"),
+    _t("Super Production (equipment + ships)", "memory", "baseline", baseline="MOPP",
+       notes="ships share MPP1; no clean console command"),
+    _t("Fast Construction", "memory+console", "baseline", baseline="MOCP",
+       console="instantconstruction", notes="console toggle builds instantly incl. ships"),
+    _t("Set Command Power", "memory+console", "baseline", baseline="MOHP",
+       offset="player.command_power", console="add_command_power <n>"),
+    _t("Unlimited Convoy", "console", "console", console="add_equipment <n> convoy"),
+    _t("Fast National Focus", "memory+console", "baseline", baseline="MOFP",
+       console="focus.autocomplete"),
+    _t("Unlimited Resources", "memory", "baseline", baseline="MOMR"),
+    _t("Unlimited Organization (standalone)", "memory", "new",
+       notes="WeMod splits this out from God Mode; relates to GDMD org write"),
+    _t("Unlimited Vehicles Fuel", "memory+console", "new", console="fuel?",
+       notes="verify console command for 1.19"),
+    _t("God Mode (army + ships)", "memory", "baseline", baseline="GDMD",
+       notes="also GMDS (ship strength) + GDS2 (ship org)"),
+    _t("Instant Movement", "memory", "baseline", baseline="MOAM",
+       notes="also MAM1 during battle"),
+    _t("Enable Ironman Console", "external", "external",
+       notes="use Fuwa's Ironman-enabler extension table"),
+    _t("Instant Agency Construction", "memory", "baseline", baseline="MOAC"),
+    _t("Instant Agency Upgrade", "memory", "baseline", baseline="MOAU"),
+    _t("Instant Agency Operatives", "memory", "baseline", baseline="MOOR"),
+    _t("Instant Intel Network", "memory", "baseline", baseline="MONP"),
+    _t("Instant Intel Ops Prepare", "memory", "baseline", baseline="MOOP"),
+    _t("Instant Intel Op Execute", "memory", "baseline", baseline="MOPH"),
+    _t("Instant Intel Decrypting", "memory", "baseline", baseline="MODP"),
+    _t("Unlimited Breakthroughs", "memory", "new", notes="combat stat, no baseline"),
+    _t("Instant Special Project / Prototype (radar, jets, etc.)", "memory", "new",
+       notes="AAT facility research. complete_special_project is a script-only effect "
+             "(no console command), so this is a CE memory cheat: scan the project's progress value."),
+    # --- Stats (all three are pPlayer fields; Recifense sets them together) ---
+    _t("Set Army Exp", "memory+console", "baseline", baseline="MOHP",
+       offset="player.army_xp", console="xp <n>"),
+    _t("Set Navy Exp", "memory+console", "baseline", baseline="MOHP",
+       offset="player.navy_xp", console="xp <n>"),
+    _t("Set Air Exp", "memory+console", "baseline", baseline="MOHP",
+       offset="player.air_xp", console="xp <n>"),
+    # --- Weapons ---
+    _t("Unlimited Nukes", "console", "console", console="add_nukes <n>"),
+    # --- Game ---
+    _t("Unlimited ManPower", "memory+console", "baseline", baseline="MOMM",
+       console="add_manpower <n>"),
+    _t("Set Political Power", "memory+console", "baseline", baseline="MOHP",
+       offset="player.political_power", console="add_political_power <n>"),
+    _t("Unlimited Stability", "memory+console", "baseline", baseline="MOHP",
+       offset="player.stability", console="add_stability <n>"),
+    _t("War Support", "memory+console", "baseline", baseline="MOHP",
+       offset="player.war_support", console="add_war_support <n>"),
+    _t("No World Tension", "memory+console", "new", console="set_worldtension <0-1>?",
+       notes="verify console command for 1.19"),
+    _t("Low Occupation Resistance", "memory+console", "new", console="resistance?",
+       notes="verify console command for 1.19"),
+    _t("Instant War Goal", "console", "console", console="add_wargoal <target>",
+       notes="likely console-only"),
+    _t("Fast Recruiting", "memory", "new"),
+]
+
+
 SCAN_RE = re.compile(
     r"AOBScanModule\(\s*(\w+)\s*,\s*\$process\s*,\s*([0-9A-Fa-f?\s]+?)\)",
     re.DOTALL,
@@ -104,6 +198,13 @@ def lua_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _lua_field(val) -> str:
+    """Render a python value as a lua literal (string or nil)."""
+    if val is None:
+        return "nil"
+    return f'"{lua_escape(str(val))}"'
+
+
 def write_lua(entries, offsets, out_path: Path, game_version: str):
     lines = []
     lines.append("-- AUTO-GENERATED by tools/extract_baseline.py -- do not edit by hand.")
@@ -130,21 +231,70 @@ def write_lua(entries, offsets, out_path: Path, game_version: str):
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_targets(targets, out_lua: Path, out_json: Path):
+    """Emit the WeMod target/coverage catalog (no .CT required)."""
+    lines = []
+    lines.append("-- AUTO-GENERATED by tools/extract_baseline.py -- do not edit by hand.")
+    lines.append(f"-- Generated: {date.today().isoformat()}")
+    lines.append("-- WeMod HOI4 feature wishlist -> route/baseline/console (docs/CHEAT-TARGETS.md).")
+    lines.append("local M = {}")
+    lines.append("M.targets = {")
+    for t in targets:
+        lines.append("  {")
+        lines.append(f'    feature  = "{lua_escape(t["feature"])}",')
+        lines.append(f'    route    = "{lua_escape(t["route"])}",')
+        lines.append(f'    status   = "{lua_escape(t["status"])}",')
+        lines.append(f'    baseline = {_lua_field(t["baseline"])},')
+        lines.append(f'    offset   = {_lua_field(t["offset"])},')
+        lines.append(f'    console  = {_lua_field(t["console"])},')
+        lines.append(f'    notes    = "{lua_escape(t["notes"])}",')
+        lines.append("  },")
+    lines.append("}")
+    lines.append("return M")
+    out_lua.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out_json.write_text(
+        json.dumps({"generated": date.today().isoformat(), "targets": targets}, indent=2),
+        encoding="utf-8")
+
+
+def coverage_summary(targets):
+    counts = {}
+    for t in targets:
+        counts[t["status"]] = counts.get(t["status"], 0) + 1
+    return counts
+
+
 def main():
     ap = argparse.ArgumentParser(description="Extract baseline AOB catalog from a .CT")
-    ap.add_argument("ct", help="path to the source .CT table")
+    ap.add_argument("ct", nargs="?", help="path to the source .CT table (omit with --targets-only)")
     ap.add_argument("--game-version", default="1.11.10",
                     help="game version the baseline corresponds to")
     ap.add_argument("--outdir", default=None,
                     help="output data dir (default: ../data relative to this script)")
+    ap.add_argument("--targets-only", action="store_true",
+                    help="only (re)write the WeMod target catalog; no .CT needed")
     args = ap.parse_args()
+
+    outdir = Path(args.outdir).resolve() if args.outdir else (Path(__file__).resolve().parent.parent / "data")
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # The WeMod target catalog is static -- always (re)write it.
+    write_targets(WEMOD_TARGETS, outdir / "wemod_targets.lua", outdir / "wemod_targets.json")
+    cov = coverage_summary(WEMOD_TARGETS)
+    print(f"WeMod targets: {len(WEMOD_TARGETS)} "
+          f"({', '.join(f'{k}={v}' for k, v in sorted(cov.items()))})")
+    print(f"  -> {outdir / 'wemod_targets.lua'}")
+    print(f"  -> {outdir / 'wemod_targets.json'}")
+
+    if args.targets_only:
+        return
+
+    if not args.ct:
+        ap.error("a .CT path is required unless --targets-only is given")
 
     ct_path = Path(args.ct).expanduser().resolve()
     if not ct_path.exists():
         sys.exit(f"ERROR: table not found: {ct_path}")
-
-    outdir = Path(args.outdir).resolve() if args.outdir else (Path(__file__).resolve().parent.parent / "data")
-    outdir.mkdir(parents=True, exist_ok=True)
 
     entries = parse_table(ct_path)
     if not entries:
