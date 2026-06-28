@@ -35,6 +35,7 @@ import array
 import ctypes
 import json
 import struct
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -43,6 +44,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LOGFILE = ROOT / "logs" / "hoi4_mem.log"
 CANDFILE = ROOT / "logs" / "hoi4_mem_candidates.json"
 RANGEFILE = ROOT / "logs" / "hoi4_mem_range.json"
+SHOTDIR = ROOT / "logs" / "watch"
 MAX_CANDS = 400_000
 CHUNK = 4 * 1024 * 1024
 
@@ -298,6 +300,62 @@ def range_peek():
         print(f"  0x{a:X} = {v}")
 
 
+def _capture(name):
+    """Capture the HOI4 top bar to logs/watch/<name> via PowerShell (.NET)."""
+    try:
+        subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                        "-File", str(ROOT / "tools" / "screencap.ps1"),
+                        "-Out", str(SHOTDIR / name), "-H", "90"],
+                       capture_output=True, timeout=20)
+    except Exception as e:  # noqa: BLE001 - capture is best-effort
+        log(f"capture failed: {e}")
+
+
+def autofind(lo, hi, secs=25):
+    """Autonomous: seed a range scan, OBSERVE for `secs` while the game runs
+    (capturing the screen itself), then keep only addresses whose value MOVED -
+    the live values. No human in the loop, so no screenshot/scan lag. The agent
+    labels the survivors from the captured screenshots afterwards."""
+    SHOTDIR.mkdir(parents=True, exist_ok=True)
+    k32, h, _ = attach()
+    seed = {}
+    for base, rsize, _p in iter_regions(k32, h):
+        off = 0
+        while off < rsize:
+            n = min(CHUNK, rsize - off)
+            d = read_bytes(k32, h, base + off, n)
+            if d:
+                arr = array.array("i")
+                arr.frombytes(d[:len(d) // 4 * 4])
+                for i, v in enumerate(arr):
+                    if lo <= v <= hi:
+                        seed[base + off + i * 4] = v
+            off += n
+            if len(seed) > MAX_CANDS:
+                break
+        if len(seed) > MAX_CANDS:
+            break
+    log(f"AUTOFIND seed [{lo},{hi}] -> {len(seed)} candidates; observing {secs}s...")
+    shots = max(2, secs // 4)
+    for i in range(shots):
+        _capture(f"af_{i:02d}.png")
+        time.sleep(secs / shots)
+    _capture("af_final.png")
+    moved = {}
+    for a, ov in seed.items():
+        d = read_bytes(k32, h, a, 4)
+        if not d:
+            continue
+        v = struct.unpack("<i", d)[0]
+        if v != ov:
+            moved[a] = [ov, v]
+    RANGEFILE.write_text(json.dumps({"pairs": [[a, v] for a, (ov, v) in moved.items()]}))
+    log(f"AUTOFIND moved -> {len(moved)} live candidates (value changed during observation):")
+    for a, (ov, v) in sorted(moved.items())[:80]:
+        log(f"  0x{a:X}  {ov} -> {v}")
+    k32.CloseHandle(h)
+
+
 def read_addr(addr, vtype):
     fmt, size = TYPES[vtype]
     k32, h, _ = attach()
@@ -370,6 +428,9 @@ def main():
     sub.add_parser("rangeup", help="narrow range candidates to those that increased")
     sub.add_parser("rangedown", help="narrow range candidates to those that decreased")
     sub.add_parser("rangepeek", help="list current range candidates")
+    af = sub.add_parser("autofind", help="seed [lo,hi], observe while playing, keep moved")
+    af.add_argument("lo", type=_int); af.add_argument("hi", type=_int)
+    af.add_argument("--secs", type=int, default=25)
     args = ap.parse_args()
 
     if args.cmd == "info":
@@ -394,6 +455,8 @@ def main():
         range_op("down")
     elif args.cmd == "rangepeek":
         range_peek()
+    elif args.cmd == "autofind":
+        autofind(args.lo, args.hi, args.secs)
 
 
 if __name__ == "__main__":
