@@ -14,14 +14,16 @@
 
  HOW TO USE (fixes the old "HOI4 is not the active window" problem):
    1. Tick this engine.
-   2. Tick a cheat below.
+   2. Tick a cheat below. For the "Add ..." cheats you will be asked to type the
+      amount yourself - HOI4's real in-game ceiling is enforced where one exists.
    3. ALT-TAB to HOI4. The command is QUEUED and fires automatically the moment
-      HOI4 becomes the active window - you no longer have to fight the focus.
- Multiple ticked cheats are sent one at a time, in order.
+      HOI4 becomes the active window. Several ticked cheats fire in order.
 
  Works in any non-Ironman game (console is native). For Ironman, enable the
  console first with Fuwa's extension table, then use these.
  If the console does not open, set HC.GRAVE to your keyboard's console key.
+ If a command does nothing in-game, that console alias may have changed for your
+ version - tell the maintainer and it will be swapped for the canonical form.
 }
 [enable]
 {$lua}
@@ -47,6 +49,23 @@ function HC.focused()
   local okP, wpid = pcall(getWindowProcessID, fg)
   if not okP or not wpid then return true end
   return wpid == getOpenedProcessID()
+end
+
+-- Ask the user for an amount. lo/hi are optional in-game ceilings (clamped).
+-- Returns an integer, or nil if cancelled / not a number.
+function HC.askAmount(title, prompt, default, lo, hi)
+  local s = inputQuery("Console Cheats: " .. title, prompt, tostring(default))
+  if s == nil then return nil end
+  local n = tonumber(s)
+  if n == nil then print("[Console Cheats] '" .. tostring(s) .. "' is not a number."); return nil end
+  n = math.floor(n)
+  if lo ~= nil then n = math.max(n, lo) end
+  if hi ~= nil then
+    local capped = math.min(n, hi)
+    if capped ~= n then print("[Console Cheats] capped to in-game max " .. hi .. ".") end
+    n = capped
+  end
+  return n
 end
 
 function HC.tap(vk)
@@ -156,91 +175,112 @@ if HC and HC.run then HC.run("research all") else print("Activate the Console Ch
         </CheatEntry>
         <CheatEntry>
           <ID>5</ID>
-          <Description>"+1000 Political Power  =  pp 1000  (re-tick to repeat)"</Description>
+          <Description>"Add Political Power  =  pp [you enter]  (no in-game ceiling)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("pp 1000") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("Political Power", "Amount to add (no in-game ceiling):", 1000, 0)
+  if n then HC.run("pp " .. n) end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
         </CheatEntry>
         <CheatEntry>
           <ID>6</ID>
-          <Description>"+100000 Manpower  =  manpower 100000  (re-tick to repeat)"</Description>
+          <Description>"Add Manpower  =  manpower [you enter]  (no in-game ceiling)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("manpower 100000") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("Manpower", "Amount to add (no in-game ceiling):", 100000, 0)
+  if n then HC.run("manpower " .. n) end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
         </CheatEntry>
         <CheatEntry>
           <ID>7</ID>
-          <Description>"+1000 Army/Navy/Air XP  =  xp 1000  (re-tick to repeat)"</Description>
+          <Description>"Add Army/Navy/Air XP  =  xp [you enter]  (no hard ceiling)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("xp 1000") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("Experience", "XP to add to Army/Navy/Air (no hard ceiling):", 1000, 0)
+  if n then HC.run("xp " .. n) end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
         </CheatEntry>
         <CheatEntry>
           <ID>8</ID>
-          <Description>"+50 Stability percent  =  st 50  (re-tick to repeat)"</Description>
+          <Description>"Add Stability %  =  st [you enter]  (in-game ceiling 100)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("st 50") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("Stability", "Percent to add (in-game ceiling 100):", 50, 0, 100)
+  if n then HC.run("st " .. n) end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
         </CheatEntry>
         <CheatEntry>
           <ID>9</ID>
-          <Description>"+50 War Support percent  =  ws 50  (re-tick to repeat)"</Description>
+          <Description>"Add War Support %  =  ws [you enter]  (in-game ceiling 100)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("ws 50") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("War Support", "Percent to add (in-game ceiling 100):", 50, 0, 100)
+  if n then HC.run("ws " .. n) end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
         </CheatEntry>
         <CheatEntry>
           <ID>10</ID>
-          <Description>"+50 Nukes  =  nuke 50  (re-tick to repeat)"</Description>
+          <Description>"Add Nukes  =  nuke [you enter]  (no in-game ceiling)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("nuke 50") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("Nukes", "Number to add (no in-game ceiling):", 50, 0)
+  if n then HC.run("nuke " .. n) end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
         </CheatEntry>
         <CheatEntry>
           <ID>11</ID>
-          <Description>"+1000 Convoys  =  add_equipment 1000 convoy  (re-tick to repeat)"</Description>
+          <Description>"Add Convoys  =  add_equipment [you enter] convoy  (no ceiling; large lags)"</Description>
           <Color>008000</Color>
           <VariableType>Auto Assembler Script</VariableType>
           <AssemblerScript>[enable]
 {$lua}
 if syntaxcheck then return end
-if HC and HC.run then HC.run("add_equipment 1000 convoy") else print("Activate the Console Cheat Engine first.") end
+if HC and HC.run then
+  local n = HC.askAmount("Convoys", "Number to add (no ceiling; very large can lag):", 1000, 0)
+  if n then HC.run("add_equipment " .. n .. " convoy") end
+else print("Activate the Console Cheat Engine first.") end
 {$asm}
 [disable]
 </AssemblerScript>
