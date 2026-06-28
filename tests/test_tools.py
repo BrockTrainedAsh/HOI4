@@ -166,6 +166,26 @@ class CeLogStructured(unittest.TestCase):
         self.assertEqual(errs, ["drain: boom"])
 
 
+class MemTool(unittest.TestCase):
+    def setUp(self):
+        self.m = _load("hoi4_mem")
+
+    def test_type_table_and_packing(self):
+        import struct
+        self.assertIn("i32", self.m.TYPES)
+        fmt, size = self.m.TYPES["i32"]
+        self.assertEqual(size, 4)
+        self.assertEqual(struct.unpack(fmt, struct.pack(fmt, 247000))[0], 247000)
+
+    def test_writable_protect_constants(self):
+        self.assertIn(0x04, self.m.WRITABLE)   # PAGE_READWRITE
+        self.assertIn(0x40, self.m.WRITABLE)   # PAGE_EXECUTE_READWRITE
+
+    def test_int_parse_accepts_hex_and_dec(self):
+        self.assertEqual(self.m._int("0x10"), 16)
+        self.assertEqual(self.m._int("247000"), 247000)
+
+
 class ShippedTable(unittest.TestCase):
     def test_ct_is_valid_xml(self):
         ct = ROOT / "tables" / "HOI4 Console Cheats.CT"
