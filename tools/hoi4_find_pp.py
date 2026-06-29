@@ -137,17 +137,27 @@ def main():
         fresh = read_pp()                    # re-OCR right before re-reading memory (PP moves fast)
         if fresh:
             cur = fresh
-        cands = {a: nv for a in cands
-                 if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 3.0}
+        new = {a: nv for a in cands
+               if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 3.0}
+        if len(new) < 5 and len(cands) >= 30:
+            M.log(f"  iter {it}: PP={cur} would collapse {len(cands)}->{len(new)} "
+                  f"(OCR blip or PP spent); keeping the {len(cands)} pre-collapse set")
+            break
+        cands = new
         M.log(f"  iter {it}: PP={cur} -> {len(cands)} candidates")
 
-    addrs = list(cands)[:KEEP]
-    # Save the converged candidates: these PP-tracking doubles are the anchor set even
-    # if the write-test is finicky - we can trace/freeze them directly.
+    all_addrs = list(cands)
+    # Save ALL tracking-doubles: the anchor set for triangulation (find the one whose
+    # neighbourhood holds the other bar values = the real pPlayer struct).
     import json
     (M.SHOTDIR.parent / "pp_cands.json").write_text(json.dumps(
         {"type": "double" if DOUBLE else ("float" if FLOAT else "int"),
-         "size": SIZE, "addrs": [hex(a) for a in addrs]}))
+         "size": SIZE, "addrs": [hex(a) for a in all_addrs]}))
+    M.log(f"  saved {len(all_addrs)} tracking-double candidates to logs/pp_cands.json")
+    if len(all_addrs) > 200:
+        M.log("  too many to write-test - identify the real PP with hoi4_triangulate.py")
+        k.CloseHandle(h); return
+    addrs = all_addrs
     M.log(f"  write-testing {len(addrs)} candidates (poke {TESTVAL}, read WHOLE bar, restore)...")
     poke = poke_bytes()
     real = []
