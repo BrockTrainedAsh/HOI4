@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-hoi4_find_pp.py - find the REAL Political Power address: the one whose value, when
-written, actually changes the HUD (every junk buffer that merely held a PP-shaped
-number is rejected). Pipeline, all measured, no AI in the loop:
-  1. OCR PP, seed-scan the heap for PP*1000.
-  2. Narrow over a few seconds (tolerant window so the true value survives drift).
-  3. WRITE-TEST each survivor: poke a distinctive value, OCR the bar, restore.
-     Only the real PP (or a live render copy) makes the bar read the poked value.
-Outputs the confirmed address(es) - the anchor to FREEZE (cheat) and to TRACE
-(hoi4_dbg -> pPlayer + real offsets for every other value).
+hoi4_find_pp.py - find the REAL Political Power address by its behaviour, with no
+assumption about scale that turned out wrong. PP is NOT int*1000 on 1.19 (a tracking
+scan collapsed to 0), so default to FLOAT (Paradox stores resources as floats).
+
+  1. OCR PP, seed every address whose value (as float, or int/1000) reads near PP.
+  2. Narrow whenever PP CHANGES in either direction (you spend it too) - keep the
+     addresses whose value still equals the OCR'd PP. Static look-alikes fall away.
+  3. WRITE-TEST survivors: poke a distinctive value, OCR the bar, restore. Only the
+     real PP (the render source) makes the bar read it - scale-independent proof.
+
+    python hoi4_find_pp.py            # float (default)
+    python hoi4_find_pp.py --int      # int x1000 (legacy)
 """
 import os
 import re
@@ -19,20 +22,30 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hoi4_mem as M  # noqa: E402
 
-TESTVAL = 4321          # distinctive PP value to poke (x1000 in memory)
-KEEP = 120              # narrow until <= this many, then write-test
-SEED_CAP = 8_000_000    # high: don't cap before the real PP's region is scanned
+KEEP = 140
+SEED_CAP = 8_000_000
+TESTVAL = 4321
+FLOAT = "--int" not in sys.argv
+FMT = "<f" if FLOAT else "<i"
+ATYP = "f" if FLOAT else "i"
 
 
-def ri32(k, h, a):
+def to_pp(v):
+    return v if FLOAT else v / 1000.0
+
+
+def poke_bytes():
+    return struct.pack(FMT, float(TESTVAL) if FLOAT else TESTVAL * 1000)
+
+
+def rd(k, h, a):
     d = M.read_bytes(k, h, a, 4)
-    return struct.unpack("<i", d)[0] if d and len(d) >= 4 else None
+    return struct.unpack(FMT, d)[0] if d and len(d) >= 4 else None
 
 
-def wi32(k, h, a, v):
+def wr(k, h, a, b):
     w = M.ctypes.c_size_t(0)
-    return k.WriteProcessMemory(h, M.ctypes.c_void_p(a), struct.pack("<i", v), 4,
-                                M.ctypes.byref(w)) and w.value == 4
+    return k.WriteProcessMemory(h, M.ctypes.c_void_p(a), b, 4, M.ctypes.byref(w)) and w.value == 4
 
 
 def screencap():
@@ -41,27 +54,32 @@ def screencap():
     return shot
 
 
-def ocr_pp(shot):
+def ocr_pp(shot=None):
+    if shot is None:
+        shot = screencap()
     r = M._ps("ocr.ps1", "-Path", str(shot), "-X", "150", "-Y", "0", "-W", "230", "-H", "90")
     txt = (r.stdout or "").strip().replace(",", "").replace(".", "").upper()
     m = re.search(r"\d+", txt)
     return int(m.group()) if m and "K" not in txt else None
 
 
-def main():
-    time.sleep(3)                       # let window focus settle after background launch
-    pp = None
+def read_pp():
     for _ in range(8):
-        pp = M._ocr_pp()
-        if pp:
-            break
+        v = ocr_pp()
+        if v:
+            return v
+    return None
+
+
+def main():
+    time.sleep(3)
+    pp = read_pp()
     if not pp:
         M.log("find_pp: could not OCR PP after retries"); return
-    M.log(f"find_pp: OCR PP={pp}; seeding [{pp*1000},{(pp+20)*1000-1}] ...")
+    lo_pp, hi_pp = pp - 3, pp + 18
+    M.log(f"find_pp ({'float' if FLOAT else 'int x1000'}): PP={pp}; seeding PP in [{lo_pp},{hi_pp}] ...")
     k, h, _ = M.attach(write=True)
-    capmb = 48 * 1024 * 1024
-
-    lo, hi = pp * 1000, (pp + 20) * 1000 - 1   # wide: cover PP drift during the slow seed
+    capmb = 64 * 1024 * 1024
     cands = {}
     for base, rsize, _p in M.iter_regions(k, h):
         if rsize > capmb:
@@ -71,10 +89,11 @@ def main():
             n = min(M.CHUNK, rsize - off)
             d = M.read_bytes(k, h, base + off, n)
             if d:
-                arr = M.array.array("i")
+                arr = M.array.array(ATYP)
                 arr.frombytes(d[:len(d) // 4 * 4])
                 for i, v in enumerate(arr):
-                    if lo <= v <= hi:
+                    p = to_pp(v)
+                    if lo_pp <= p <= hi_pp:
                         cands[base + off + i * 4] = v
             off += n
             if len(cands) > SEED_CAP:
@@ -84,43 +103,44 @@ def main():
     M.log(f"  seed -> {len(cands)} candidates")
 
     last = pp
-    for it in range(40):
+    for it in range(50):
         if len(cands) <= KEEP:
             break
-        # wait until PP actually ADVANCES, so each narrow is effective (PP only rises)
-        pp = None
+        cur = None
         for _ in range(25):
             time.sleep(1.5)
-            pp = M._ocr_pp()
-            if pp and pp > last:
+            cur = read_pp()
+            if cur and abs(cur - last) >= 1:    # PP changed (up OR down)
                 break
-        if not pp or pp <= last:
-            M.log(f"  iter {it}: PP stopped advancing ({pp}); stopping with {len(cands)} left")
+        if not cur or abs(cur - last) < 1:
+            M.log(f"  iter {it}: PP not changing ({cur}); stopping with {len(cands)} left")
             break
-        last = pp
-        lo, hi = (pp - 1) * 1000, (pp + 2) * 1000 - 1   # tight; OCR is accurate now
-        cands = {a: nv for a in cands if (nv := ri32(k, h, a)) is not None and lo <= nv <= hi}
-        M.log(f"  iter {it}: OCR PP={pp} -> {len(cands)} candidates")
+        last = cur
+        cands = {a: nv for a in cands
+                 if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 1.5}
+        M.log(f"  iter {it}: PP={cur} -> {len(cands)} candidates")
 
     addrs = list(cands)[:KEEP]
     M.log(f"  write-testing {len(addrs)} candidates (poke {TESTVAL}, OCR, restore)...")
+    poke = poke_bytes()
     real = []
     for a in addrs:
-        orig = ri32(k, h, a)
-        if orig is None:
+        orig = M.read_bytes(k, h, a, 4)
+        if not orig:
             continue
-        end = time.time() + 0.35          # hold the poke so the render draws it
+        end = time.time() + 0.35
         while time.time() < end:
-            wi32(k, h, a, TESTVAL * 1000)
-        shot = screencap()                # capture while the value is still poked
-        wi32(k, h, a, orig)               # restore original
+            wr(k, h, a, poke)
+        shot = screencap()
+        w = M.ctypes.c_size_t(0)
+        k.WriteProcessMemory(h, M.ctypes.c_void_p(a), orig, 4, M.ctypes.byref(w))  # restore
         if ocr_pp(shot) == TESTVAL:
             real.append(a)
             M.log(f"  *** REAL PP @ 0x{a:X} (HUD read {TESTVAL} when poked) ***")
-    if not real:
-        M.log("  no candidate moved the HUD - widen KEEP or re-run (PP may have drifted out).")
+    if real:
+        M.log("FOUND real PP: " + ", ".join(f"0x{a:X}" for a in real))
     else:
-        M.log("FOUND real PP address(es): " + ", ".join(f"0x{a:X}" for a in real))
+        M.log("  no candidate moved the HUD (try --int, or PP got spent mid-run; re-run).")
     k.CloseHandle(h)
 
 
