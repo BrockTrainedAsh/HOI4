@@ -71,6 +71,15 @@ def ocr_pp(shot=None):
     return int(m.group()) if m and "K" not in txt else None
 
 
+def ocr_full(shot):
+    """OCR the whole bar and take the leftmost number = PP. Digit-count-proof, so it
+    reads a 4-digit poke that the narrow crop might clip."""
+    r = M._ps("ocr.ps1", "-Path", str(shot))
+    txt = (r.stdout or "").strip().replace(",", "")
+    m = re.search(r"(\d+)", txt)
+    return int(m.group(1)) if m else None
+
+
 def read_pp():
     for _ in range(8):
         v = ocr_pp()
@@ -133,26 +142,32 @@ def main():
         M.log(f"  iter {it}: PP={cur} -> {len(cands)} candidates")
 
     addrs = list(cands)[:KEEP]
-    M.log(f"  write-testing {len(addrs)} candidates (poke {TESTVAL}, OCR, restore)...")
+    # Save the converged candidates: these PP-tracking doubles are the anchor set even
+    # if the write-test is finicky - we can trace/freeze them directly.
+    import json
+    (M.SHOTDIR.parent / "pp_cands.json").write_text(json.dumps(
+        {"type": "double" if DOUBLE else ("float" if FLOAT else "int"),
+         "size": SIZE, "addrs": [hex(a) for a in addrs]}))
+    M.log(f"  write-testing {len(addrs)} candidates (poke {TESTVAL}, read WHOLE bar, restore)...")
     poke = poke_bytes()
     real = []
     for a in addrs:
         orig = M.read_bytes(k, h, a, SIZE)
         if not orig:
             continue
-        end = time.time() + 0.35
+        end = time.time() + 0.5
         while time.time() < end:
             wr(k, h, a, poke)
         shot = screencap()
         w = M.ctypes.c_size_t(0)
         k.WriteProcessMemory(h, M.ctypes.c_void_p(a), orig, SIZE, M.ctypes.byref(w))  # restore
-        if ocr_pp(shot) == TESTVAL:
+        if ocr_full(shot) == TESTVAL:
             real.append(a)
             M.log(f"  *** REAL PP @ 0x{a:X} (HUD read {TESTVAL} when poked) ***")
     if real:
         M.log("FOUND real PP: " + ", ".join(f"0x{a:X}" for a in real))
     else:
-        M.log("  no candidate moved the HUD (try --int, or PP got spent mid-run; re-run).")
+        M.log(f"  none moved the HUD; {len(addrs)} tracking doubles saved to logs/pp_cands.json")
     k.CloseHandle(h)
 
 
