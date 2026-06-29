@@ -44,3 +44,12 @@ Turn the writer into a cheat via **AOB code-injection** (the proven trainer meth
 back up the 5 original bytes, allocate a cave, `push`/`pop` to preserve registers, force
 `[RSI+0x68]` to a max constant, `jmp` back. Identify the value first (is it org/strength
 worth maxing). High-risk on a live game — gate behind a save + a one-keystroke restore.
+
+## PP ENCODING SOLVED (the key to 1.19)
+Political Power is stored as **int32 = displayed_PP × 100000** (e.g. PP 180.068 ->
+18,006,755). Confirmed from live CE data: (180, 18006755), (530, 53006755),
+(578, 57916755) - exactly linear, slope 100000. NOT x1000 (old tables) and NOT a
+double (my earlier wrong guess - that was noise). This 100000x scale is why every
+value-scan (int x1000, float, double) failed. To set PP=N: write int32 = N*100000
+(cap ~PP 20000 to stay under int32 max). CE finds it via Float + increased/decreased
+(the rising int makes the float-bytes wobble), then read it as 4 Bytes.
