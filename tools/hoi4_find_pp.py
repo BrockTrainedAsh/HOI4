@@ -55,10 +55,12 @@ def screencap():
 
 
 def ocr_pp(shot=None):
+    # X=190 starts AFTER the PP icon (X=150 catches the icon and OCRs to nothing);
+    # W=130 still fits a 4-digit poke like 4321. Verified reads 59/80/148.
     if shot is None:
         shot = screencap()
-    r = M._ps("ocr.ps1", "-Path", str(shot), "-X", "150", "-Y", "0", "-W", "230", "-H", "90")
-    txt = (r.stdout or "").strip().replace(",", "").replace(".", "").upper()
+    r = M._ps("ocr.ps1", "-Path", str(shot), "-X", "190", "-Y", "0", "-W", "130", "-H", "90")
+    txt = (r.stdout or "").strip().replace(",", "").upper()
     m = re.search(r"\d+", txt)
     return int(m.group()) if m and "K" not in txt else None
 
