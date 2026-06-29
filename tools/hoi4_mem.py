@@ -106,6 +106,21 @@ class PROCESSENTRY32W(ctypes.Structure):
     ]
 
 
+class MODULEENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", ctypes.c_ulong),
+        ("th32ModuleID", ctypes.c_ulong),
+        ("th32ProcessID", ctypes.c_ulong),
+        ("GlblcntUsage", ctypes.c_ulong),
+        ("ProccntUsage", ctypes.c_ulong),
+        ("modBaseAddr", ctypes.c_void_p),
+        ("modBaseSize", ctypes.c_ulong),
+        ("hModule", ctypes.c_void_p),
+        ("szModule", ctypes.c_wchar * 256),
+        ("szExePath", ctypes.c_wchar * 260),
+    ]
+
+
 def _k32():
     if sys.platform != "win32":
         sys.exit("hoi4_mem.py must run under WINDOWS Python as admin "
@@ -123,6 +138,8 @@ def _k32():
     k.VirtualQueryEx.argtypes = [HD, LP, LP, ST]; k.VirtualQueryEx.restype = ST
     k.ReadProcessMemory.argtypes = [HD, LP, LP, ST, LP]; k.ReadProcessMemory.restype = BL
     k.WriteProcessMemory.argtypes = [HD, LP, LP, ST, LP]; k.WriteProcessMemory.restype = BL
+    k.Module32FirstW.argtypes = [HD, LP]; k.Module32FirstW.restype = BL
+    k.Module32NextW.argtypes = [HD, LP]; k.Module32NextW.restype = BL
     return k
 
 
@@ -469,6 +486,109 @@ def freeze(addr, value, mult=1, secs=8):
     k32.CloseHandle(h)
 
 
+def get_module(k32, pid, name="hoi4.exe"):
+    snap = k32.CreateToolhelp32Snapshot(0x08 | 0x10, pid)  # SNAPMODULE | SNAPMODULE32
+    me = MODULEENTRY32W()
+    me.dwSize = ctypes.sizeof(me)
+    ok = k32.Module32FirstW(snap, ctypes.byref(me))
+    base = size = 0
+    while ok:
+        if (me.szModule or "").lower() == name.lower():
+            base, size = me.modBaseAddr or 0, me.modBaseSize
+            break
+        ok = k32.Module32NextW(snap, ctypes.byref(me))
+    k32.CloseHandle(snap)
+    return base, size
+
+
+def _parse_aob(s):
+    out = []
+    for t in s.replace("\n", " ").split():
+        try:
+            out.append(int(t, 16))
+        except ValueError:
+            out.append(None)   # wildcard (?? or *)
+    return out
+
+
+def _count_aob(buf, pat, cap=16):
+    # anchor on the longest run of fixed bytes for a fast bytes.find prefilter
+    best_len = best_at = 0
+    i = 0
+    while i < len(pat):
+        if pat[i] is not None:
+            j = i
+            while j < len(pat) and pat[j] is not None:
+                j += 1
+            if j - i > best_len:
+                best_len, best_at = j - i, i
+            i = j
+        else:
+            i += 1
+    if best_len == 0:
+        return -1
+    needle = bytes(pat[best_at:best_at + best_len])
+    cnt, pos, L = 0, 0, len(pat)
+    while True:
+        idx = buf.find(needle, pos)
+        if idx < 0:
+            break
+        st = idx - best_at
+        if 0 <= st and st + L <= len(buf) and all(
+                pat[k] is None or buf[st + k] == pat[k] for k in range(L)):
+            cnt += 1
+            if cnt > cap:
+                break
+        pos = idx + 1
+    return cnt
+
+
+def aob_check(ctpath=None):
+    """Scan AOB signatures against the LIVE hoi4.exe module and report which resolve.
+    With a .CT path, reads that table's AOBScanModule patterns; else data/signatures.json.
+    This is the toolkit's healthcheck, run by the agent with no Cheat Engine."""
+    if ctpath:
+        text = Path(ctpath).read_text(encoding="utf-8", errors="replace")
+        rx = re.compile(r"AOBScanModule\(\s*(\w+)\s*,[^,]+,\s*([0-9A-Fa-f?*\s]+?)\)", re.DOTALL)
+        seen, sigs = set(), []
+        for m in rx.finditer(text):
+            sym = m.group(1)
+            if sym not in seen:
+                seen.add(sym)
+                sigs.append({"symbol": sym, "pattern": " ".join(m.group(2).split())})
+    else:
+        sigs = json.loads((ROOT / "data" / "signatures.json").read_text())["signatures"]
+    if not sigs:
+        log("aob_check: no AOBScanModule patterns found"); return
+    k32, h, pid = attach()
+    base, size = get_module(k32, pid)
+    if not base:
+        log("aob_check: hoi4.exe module not found"); k32.CloseHandle(h); return
+    log(f"aob_check: hoi4.exe @ 0x{base:X} size={size // 1024 // 1024}MB; scanning {len(sigs)} sigs...")
+    parts, off = [], 0
+    while off < size:
+        n = min(CHUNK, size - off)
+        d = read_bytes(k32, h, base + off, n)
+        parts.append(d if d else b"\x00" * n)
+        off += n
+    buf = b"".join(parts)
+    res = miss = amb = 0
+    for s in sigs:
+        m = _count_aob(buf, _parse_aob(s["pattern"]))
+        if m == 1:
+            res += 1; tag = "RESOLVES"
+        elif m == 0:
+            miss += 1; tag = "missing"
+        elif m < 0:
+            tag = "all-wild"
+        else:
+            amb += 1; tag = f"ambig x{m}"
+        log(f"  [{tag:9}] {s['symbol']}")
+    log(f"AOBCHECK: {res}/{len(sigs)} RESOLVE, {miss} missing, {amb} ambiguous on the live game "
+        f"-> {'TABLE LIKELY WORKS' if res > len(sigs) * 0.6 else 'table is for the WRONG version (relocate / get the 1.19 build)'}")
+    k32.CloseHandle(h)
+
+
 def read_addr(addr, vtype):
     fmt, size = TYPES[vtype]
     k32, h, _ = attach()
@@ -568,6 +688,8 @@ def main():
     fz = sub.add_parser("freeze", help="continuously write value*mult to addr for --secs")
     fz.add_argument("addr", type=_int); fz.add_argument("value", type=_int)
     fz.add_argument("--mult", type=int, default=1); fz.add_argument("--secs", type=int, default=8)
+    ab = sub.add_parser("aobcheck", help="scan a table's AOB sigs against the live game")
+    ab.add_argument("ct", nargs="?", default=None, help="path to a .CT (else data/signatures.json)")
     args = ap.parse_args()
 
     if args.cmd == "info":
@@ -598,6 +720,8 @@ def main():
         autocheat(args.setval, args.mult, args.iters)
     elif args.cmd == "freeze":
         freeze(args.addr, args.value, args.mult, args.secs)
+    elif args.cmd == "aobcheck":
+        aob_check(args.ct)
 
 
 if __name__ == "__main__":
