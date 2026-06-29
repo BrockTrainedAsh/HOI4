@@ -22,7 +22,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hoi4_mem as M  # noqa: E402
 
-KEEP = 140
+KEEP = 25
 SEED_CAP = 8_000_000
 TESTVAL = 4321
 DOUBLE = "--double" in sys.argv
@@ -137,14 +137,14 @@ def main():
         fresh = read_pp()                    # re-OCR right before re-reading memory (PP moves fast)
         if fresh:
             cur = fresh
-        new = {a: nv for a in cands
-               if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 3.0}
-        if len(new) < 5 and len(cands) >= 30:
-            M.log(f"  iter {it}: PP={cur} would collapse {len(cands)}->{len(new)} "
-                  f"(OCR blip or PP spent); keeping the {len(cands)} pre-collapse set")
-            break
-        cands = new
+        # A collapse to a tiny set is GOOD: it means PP moved past the static look-alike
+        # clusters and only the truly-tracking value(s) survived. Keep it and test it.
+        cands = {a: nv for a in cands
+                 if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 3.0}
         M.log(f"  iter {it}: PP={cur} -> {len(cands)} candidates")
+        if not cands:
+            M.log("  collapsed to 0 (an OCR blip or you spent PP); re-run.")
+            break
 
     all_addrs = list(cands)
     # Save ALL tracking-doubles: the anchor set for triangulation (find the one whose
@@ -154,10 +154,7 @@ def main():
         {"type": "double" if DOUBLE else ("float" if FLOAT else "int"),
          "size": SIZE, "addrs": [hex(a) for a in all_addrs]}))
     M.log(f"  saved {len(all_addrs)} tracking-double candidates to logs/pp_cands.json")
-    if len(all_addrs) > 200:
-        M.log("  too many to write-test - identify the real PP with hoi4_triangulate.py")
-        k.CloseHandle(h); return
-    addrs = all_addrs
+    addrs = all_addrs[:80]
     M.log(f"  write-testing {len(addrs)} candidates (poke {TESTVAL}, read WHOLE bar, restore)...")
     poke = poke_bytes()
     real = []
