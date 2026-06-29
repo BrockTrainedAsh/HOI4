@@ -21,7 +21,7 @@ import hoi4_mem as M  # noqa: E402
 
 TESTVAL = 4321          # distinctive PP value to poke (x1000 in memory)
 KEEP = 120              # narrow until <= this many, then write-test
-SEED_CAP = 3_000_000
+SEED_CAP = 8_000_000    # high: don't cap before the real PP's region is scanned
 
 
 def ri32(k, h, a):
@@ -49,9 +49,14 @@ def ocr_pp(shot):
 
 
 def main():
-    pp = M._ocr_pp()
+    time.sleep(3)                       # let window focus settle after background launch
+    pp = None
+    for _ in range(8):
+        pp = M._ocr_pp()
+        if pp:
+            break
     if not pp:
-        M.log("find_pp: could not OCR PP"); return
+        M.log("find_pp: could not OCR PP after retries"); return
     M.log(f"find_pp: OCR PP={pp}; seeding [{pp*1000},{(pp+1)*1000-1}] ...")
     k, h, _ = M.attach(write=True)
     capmb = 48 * 1024 * 1024
@@ -85,7 +90,7 @@ def main():
         pp = M._ocr_pp()
         if pp is None:
             continue
-        lo, hi = (pp - 1) * 1000, (pp + 3) * 1000 - 1   # tolerant: survive drift/lag
+        lo, hi = (pp - 2) * 1000, (pp + 4) * 1000 - 1   # tolerant: survive drift/lag
         cands = {a: nv for a in cands if (nv := ri32(k, h, a)) is not None and lo <= nv <= hi}
         M.log(f"  iter {it}: OCR PP={pp} -> {len(cands)} candidates")
 

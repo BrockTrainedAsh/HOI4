@@ -4,17 +4,21 @@
 #   powershell ... -File ocr.ps1 -Path C:\...\top.png -X 200 -Y 0 -W 140 -H 90
 param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [int]$X = -1, [int]$Y = 0, [int]$W = 0, [int]$H = 0
+    [int]$X = -1, [int]$Y = 0, [int]$W = 0, [int]$H = 0, [int]$Scale = 3
 )
 
-# Optional crop to a sub-region, written next to the source as *_crop.png
+# Optional crop to a sub-region, UPSCALED $Scale x (small HUD digits OCR poorly at
+# native size - 6/5/8/9 get confused; enlarging with smooth interpolation fixes it).
 $ocrPath = $Path
 if ($X -ge 0 -and $W -gt 0 -and $H -gt 0) {
     Add-Type -AssemblyName System.Drawing
     $src = [System.Drawing.Image]::FromFile($Path)
-    $crop = New-Object System.Drawing.Bitmap($W, $H)
+    $sw = $W * $Scale; $sh = $H * $Scale
+    $crop = New-Object System.Drawing.Bitmap($sw, $sh)
     $g = [System.Drawing.Graphics]::FromImage($crop)
-    $g.DrawImage($src, (New-Object System.Drawing.Rectangle(0, 0, $W, $H)),
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $g.DrawImage($src, (New-Object System.Drawing.Rectangle(0, 0, $sw, $sh)),
                  (New-Object System.Drawing.Rectangle($X, $Y, $W, $H)),
                  [System.Drawing.GraphicsUnit]::Pixel)
     $ocrPath = [System.IO.Path]::ChangeExtension($Path, $null) + "crop.png"
