@@ -158,23 +158,22 @@ def make_context():
 
 
 def set_bp(tid, addr, dr7):
+    # GENTLE: no SuspendThread/ResumeThread. The mass suspend/resume across ~100 threads
+    # was what crashed the game (it crashed AFTER a clean detach both times). DR registers
+    # aren't used by normal code, so setting them on a running thread is safe; also clear
+    # DR6 (debug status) so stale hit-state can't linger.
     th = k.OpenThread(THREAD_ALL, False, tid)
     if not th:
         return False
-    k.SuspendThread(th)
     ctx, _buf = make_context()
     ctx.ContextFlags = CONTEXT_DEBUG
     ok = False
     if k.GetThreadContext(th, C.byref(ctx)):
         ctx.Dr0 = addr
+        ctx.Dr6 = 0
         ctx.Dr7 = dr7
         ctx.ContextFlags = CONTEXT_DEBUG
-        if k.SetThreadContext(th, C.byref(ctx)):
-            v, _b2 = make_context()
-            v.ContextFlags = CONTEXT_DEBUG
-            if k.GetThreadContext(th, C.byref(v)) and v.Dr0 == addr and v.Dr7 == dr7:
-                ok = True   # registers actually stuck
-    k.ResumeThread(th)
+        ok = bool(k.SetThreadContext(th, C.byref(ctx)))
     k.CloseHandle(th)
     return ok
 
