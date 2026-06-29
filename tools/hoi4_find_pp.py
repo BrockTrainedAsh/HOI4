@@ -25,27 +25,33 @@ import hoi4_mem as M  # noqa: E402
 KEEP = 140
 SEED_CAP = 8_000_000
 TESTVAL = 4321
-FLOAT = "--int" not in sys.argv
-FMT = "<f" if FLOAT else "<i"
-ATYP = "f" if FLOAT else "i"
+DOUBLE = "--double" in sys.argv
+FLOAT = (not DOUBLE) and ("--int" not in sys.argv)
+if DOUBLE:
+    FMT, ATYP, SIZE = "<d", "d", 8
+elif FLOAT:
+    FMT, ATYP, SIZE = "<f", "f", 4
+else:
+    FMT, ATYP, SIZE = "<i", "i", 4
+REAL = FLOAT or DOUBLE
 
 
 def to_pp(v):
-    return v if FLOAT else v / 1000.0
+    return v if REAL else v / 1000.0
 
 
 def poke_bytes():
-    return struct.pack(FMT, float(TESTVAL) if FLOAT else TESTVAL * 1000)
+    return struct.pack(FMT, float(TESTVAL) if REAL else TESTVAL * 1000)
 
 
 def rd(k, h, a):
-    d = M.read_bytes(k, h, a, 4)
-    return struct.unpack(FMT, d)[0] if d and len(d) >= 4 else None
+    d = M.read_bytes(k, h, a, SIZE)
+    return struct.unpack(FMT, d)[0] if d and len(d) >= SIZE else None
 
 
 def wr(k, h, a, b):
     w = M.ctypes.c_size_t(0)
-    return k.WriteProcessMemory(h, M.ctypes.c_void_p(a), b, 4, M.ctypes.byref(w)) and w.value == 4
+    return k.WriteProcessMemory(h, M.ctypes.c_void_p(a), b, len(b), M.ctypes.byref(w)) and w.value == len(b)
 
 
 def screencap():
@@ -92,11 +98,11 @@ def main():
             d = M.read_bytes(k, h, base + off, n)
             if d:
                 arr = M.array.array(ATYP)
-                arr.frombytes(d[:len(d) // 4 * 4])
+                arr.frombytes(d[:len(d) // SIZE * SIZE])
                 for i, v in enumerate(arr):
                     p = to_pp(v)
                     if lo_pp <= p <= hi_pp:
-                        cands[base + off + i * 4] = v
+                        cands[base + off + i * SIZE] = v
             off += n
             if len(cands) > SEED_CAP:
                 break
@@ -130,7 +136,7 @@ def main():
     poke = poke_bytes()
     real = []
     for a in addrs:
-        orig = M.read_bytes(k, h, a, 4)
+        orig = M.read_bytes(k, h, a, SIZE)
         if not orig:
             continue
         end = time.time() + 0.35
@@ -138,7 +144,7 @@ def main():
             wr(k, h, a, poke)
         shot = screencap()
         w = M.ctypes.c_size_t(0)
-        k.WriteProcessMemory(h, M.ctypes.c_void_p(a), orig, 4, M.ctypes.byref(w))  # restore
+        k.WriteProcessMemory(h, M.ctypes.c_void_p(a), orig, SIZE, M.ctypes.byref(w))  # restore
         if ocr_pp(shot) == TESTVAL:
             real.append(a)
             M.log(f"  *** REAL PP @ 0x{a:X} (HUD read {TESTVAL} when poked) ***")
