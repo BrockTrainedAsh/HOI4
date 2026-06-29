@@ -228,6 +228,31 @@ def trace(addr, rw, secs, max_hits):
             print(f"    {n} = 0x{base_val:X}  ->  0x{addr:X} = [{n} + 0x{off:X}]   (x{c})")
 
 
+def selftest(secs=4):
+    """Attach, pump/continue all debug events (NO breakpoint), detach. Proves the
+    risky machinery is safe before we trace anything real."""
+    pid = find_pid()
+    if not pid:
+        print("hoi4.exe not running"); return
+    print(f"[selftest] attaching to pid {pid} for {secs}s (no breakpoint set)...")
+    if not k.DebugActiveProcess(pid):
+        print(f"DebugActiveProcess failed (err {C.get_last_error()})"); return
+    k.DebugSetProcessKillOnExit(False)
+    evt = DEBUG_EVENT()
+    deadline = time.time() + secs
+    n = 0
+    try:
+        while time.time() < deadline:
+            if k.WaitForDebugEvent(C.byref(evt), 200):
+                n += 1
+                if evt.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT:
+                    break
+                k.ContinueDebugEvent(evt.dwProcessId, evt.dwThreadId, DBG_CONTINUE)
+    finally:
+        ok = k.DebugActiveProcessStop(pid)
+        print(f"[selftest] pumped {n} events; detached cleanly={bool(ok)}. Game should be alive.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -236,9 +261,13 @@ def main():
     t.add_argument("--write", action="store_true", help="only writes (else read+write)")
     t.add_argument("--secs", type=int, default=8)
     t.add_argument("--hits", type=int, default=12)
+    st = sub.add_parser("selftest", help="attach/detach safely, no breakpoint")
+    st.add_argument("--secs", type=int, default=4)
     a = ap.parse_args()
     if a.cmd == "trace":
         trace(a.addr, 1 if a.write else 3, a.secs, a.hits)
+    elif a.cmd == "selftest":
+        selftest(a.secs)
 
 
 if __name__ == "__main__":
