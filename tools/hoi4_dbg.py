@@ -146,19 +146,37 @@ def dr7_for(rw, length=3):
     return 0x1 | (rw << 16) | (length << 18)
 
 
+def make_context():
+    """A CONTEXT on a 16-byte boundary (required by Get/SetThreadContext on x64;
+    a plain ctypes Structure may be only 8-aligned, which makes the calls fail)."""
+    size = C.sizeof(CONTEXT)
+    buf = (C.c_byte * (size + 16))()
+    aligned = (C.addressof(buf) + 15) & ~15
+    C.memset(aligned, 0, size)
+    ctx = CONTEXT.from_address(aligned)
+    return ctx, buf
+
+
 def set_bp(tid, addr, dr7):
     th = k.OpenThread(THREAD_ALL, False, tid)
     if not th:
-        return
+        return False
     k.SuspendThread(th)
-    ctx = CONTEXT(); ctx.ContextFlags = CONTEXT_DEBUG
+    ctx, _buf = make_context()
+    ctx.ContextFlags = CONTEXT_DEBUG
+    ok = False
     if k.GetThreadContext(th, C.byref(ctx)):
         ctx.Dr0 = addr
         ctx.Dr7 = dr7
         ctx.ContextFlags = CONTEXT_DEBUG
-        k.SetThreadContext(th, C.byref(ctx))
+        if k.SetThreadContext(th, C.byref(ctx)):
+            v, _b2 = make_context()
+            v.ContextFlags = CONTEXT_DEBUG
+            if k.GetThreadContext(th, C.byref(v)) and v.Dr0 == addr and v.Dr7 == dr7:
+                ok = True   # registers actually stuck
     k.ResumeThread(th)
     k.CloseHandle(th)
+    return ok
 
 
 GPR = ("Rax", "Rcx", "Rdx", "Rbx", "Rsp", "Rbp", "Rsi", "Rdi",
@@ -179,8 +197,8 @@ def trace(addr, rw, secs, max_hits):
     evt = DEBUG_EVENT()
     deadline = time.time() + secs
     try:
-        for tid in threads(pid):
-            set_bp(tid, addr, dr7)
+        armed = sum(1 for tid in threads(pid) if set_bp(tid, addr, dr7))
+        print(f"[dbg] armed DR0 breakpoint on {armed} thread(s)")
         while time.time() < deadline and len(hits) < max_hits:
             if not k.WaitForDebugEvent(C.byref(evt), 200):
                 continue
@@ -193,7 +211,7 @@ def trace(addr, rw, secs, max_hits):
             elif code == EXCEPTION_DEBUG_EVENT:
                 if evt.u.ExceptionRecord.ExceptionCode == EXCEPTION_SINGLE_STEP:
                     th = k.OpenThread(THREAD_ALL, False, evt.dwThreadId)
-                    ctx = CONTEXT(); ctx.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG
+                    ctx, _b = make_context(); ctx.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG
                     if th and k.GetThreadContext(th, C.byref(ctx)):
                         rip = ctx.Rip
                         if rip not in seen:
@@ -211,10 +229,18 @@ def trace(addr, rw, secs, max_hits):
                     status = DBG_EXCEPTION_NOT_HANDLED
             k.ContinueDebugEvent(evt.dwProcessId, evt.dwThreadId, status)
     finally:
-        for tid in threads(pid):
-            set_bp(tid, 0, 0)
+        # CRITICAL: a debug register left armed faults with no debugger attached and
+        # crashes the game. Disable DR7 (verified) on EVERY thread, several passes, and
+        # only detach once nothing remains armed.
+        for _pass in range(4):
+            remaining = 0
+            for tid in threads(pid):
+                if not set_bp(tid, 0, 0):   # sets DR0=DR7=0 and verifies they stuck
+                    remaining += 1
+            if remaining == 0:
+                break
         k.DebugActiveProcessStop(pid)
-        print(f"[dbg] detached. {len(hits)} distinct instruction(s) touched 0x{addr:X}.")
+        print(f"[dbg] breakpoints cleared + detached. {len(hits)} instruction(s) touched 0x{addr:X}.")
     # summary: the most common base register/offset is the struct pointer
     from collections import Counter
     cnt = Counter()
