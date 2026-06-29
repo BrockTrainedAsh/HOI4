@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="35">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>1190</ID>
+      <Description>"Minimum Political Power (1000) - HOI4 1.19.1"</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript>{ HOI4 1.19.1.0  -  PP is int32 = displayedPP x 100000.
+  The game writes PP (clamped to a 2000 max) here:
+     hoi4.exe+B9E19A  mov [rdi+0xE0],rcx
+  We hook it and force PP to at least 1000 (= 100,000,000).
+  Edit the two #100000000 lines to change the floor (max the game allows is 2000).
+  NOTE: this floor applies to every country's PP, not only yours. }
+
+[ENABLE]
+aobscanmodule(ppMIN,hoi4.exe,48 89 8F E0 00 00 00 48 8B 05 ?? ?? ?? ?? 48 3B C8 7D 07)
+alloc(newmem,$1000,ppMIN)
+label(code)
+label(return)
+
+newmem:
+  cmp rcx,#100000000
+  jge code
+  mov rcx,#100000000
+code:
+  mov [rdi+000000E0],rcx
+  jmp return
+
+ppMIN:
+  jmp newmem
+  nop 2
+return:
+registersymbol(ppMIN)
+
+[DISABLE]
+ppMIN:
+  db 48 89 8F E0 00 00 00
+unregistersymbol(ppMIN)
+dealloc(newmem)
+</AssemblerScript>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>
