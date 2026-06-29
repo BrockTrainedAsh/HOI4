@@ -85,7 +85,8 @@ def main():
     if not pp:
         M.log("find_pp: could not OCR PP after retries"); return
     lo_pp, hi_pp = pp - 3, pp + 18
-    M.log(f"find_pp ({'float' if FLOAT else 'int x1000'}): PP={pp}; seeding PP in [{lo_pp},{hi_pp}] ...")
+    tname = "double" if DOUBLE else ("float" if FLOAT else "int x1000")
+    M.log(f"find_pp ({tname}): PP={pp}; seeding PP in [{lo_pp},{hi_pp}] ...")
     k, h, _ = M.attach(write=True)
     capmb = 64 * 1024 * 1024
     cands = {}
