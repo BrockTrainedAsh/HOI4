@@ -158,13 +158,14 @@ def make_context():
 
 
 def set_bp(tid, addr, dr7):
-    # GENTLE: no SuspendThread/ResumeThread. The mass suspend/resume across ~100 threads
-    # was what crashed the game (it crashed AFTER a clean detach both times). DR registers
-    # aren't used by normal code, so setting them on a running thread is safe; also clear
-    # DR6 (debug status) so stale hit-state can't linger.
+    # The thread MUST be suspended: SetThreadContext on a running thread writes a saved
+    # context the live CPU never reloads, so the breakpoint silently never fires (verified:
+    # 105 "armed", 0 hits, even for reads). With suspend it works (catches writes) but the
+    # mass suspend/resume across ~100 HOI4 threads can crash the game - the core tradeoff.
     th = k.OpenThread(THREAD_ALL, False, tid)
     if not th:
         return False
+    k.SuspendThread(th)
     ctx, _buf = make_context()
     ctx.ContextFlags = CONTEXT_DEBUG
     ok = False
@@ -173,7 +174,12 @@ def set_bp(tid, addr, dr7):
         ctx.Dr6 = 0
         ctx.Dr7 = dr7
         ctx.ContextFlags = CONTEXT_DEBUG
-        ok = bool(k.SetThreadContext(th, C.byref(ctx)))
+        if k.SetThreadContext(th, C.byref(ctx)):
+            v, _b2 = make_context()
+            v.ContextFlags = CONTEXT_DEBUG
+            if k.GetThreadContext(th, C.byref(v)) and v.Dr0 == addr and v.Dr7 == dr7:
+                ok = True
+    k.ResumeThread(th)
     k.CloseHandle(th)
     return ok
 
