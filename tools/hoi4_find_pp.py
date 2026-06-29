@@ -118,8 +118,11 @@ def main():
             M.log(f"  iter {it}: PP not changing ({cur}); stopping with {len(cands)} left")
             break
         last = cur
+        fresh = read_pp()                    # re-OCR right before re-reading memory (PP moves fast)
+        if fresh:
+            cur = fresh
         cands = {a: nv for a in cands
-                 if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 1.5}
+                 if (nv := rd(k, h, a)) is not None and abs(to_pp(nv) - cur) <= 3.0}
         M.log(f"  iter {it}: PP={cur} -> {len(cands)} candidates")
 
     addrs = list(cands)[:KEEP]
