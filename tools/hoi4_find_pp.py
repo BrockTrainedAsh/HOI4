@@ -57,7 +57,7 @@ def main():
             break
     if not pp:
         M.log("find_pp: could not OCR PP after retries"); return
-    M.log(f"find_pp: OCR PP={pp}; seeding [{pp*1000},{(pp+1)*1000-1}] ...")
+    M.log(f"find_pp: OCR PP={pp}; seeding [{pp*1000},{(pp+20)*1000-1}] ...")
     k, h, _ = M.attach(write=True)
     capmb = 48 * 1024 * 1024
 
@@ -83,14 +83,22 @@ def main():
             break
     M.log(f"  seed -> {len(cands)} candidates")
 
-    for it in range(10):
+    last = pp
+    for it in range(40):
         if len(cands) <= KEEP:
             break
-        time.sleep(2.0)
-        pp = M._ocr_pp()
-        if pp is None:
-            continue
-        lo, hi = (pp - 2) * 1000, (pp + 4) * 1000 - 1   # tolerant: survive drift/lag
+        # wait until PP actually ADVANCES, so each narrow is effective (PP only rises)
+        pp = None
+        for _ in range(25):
+            time.sleep(1.5)
+            pp = M._ocr_pp()
+            if pp and pp > last:
+                break
+        if not pp or pp <= last:
+            M.log(f"  iter {it}: PP stopped advancing ({pp}); stopping with {len(cands)} left")
+            break
+        last = pp
+        lo, hi = (pp - 1) * 1000, (pp + 2) * 1000 - 1   # tight; OCR is accurate now
         cands = {a: nv for a in cands if (nv := ri32(k, h, a)) is not None and lo <= nv <= hi}
         M.log(f"  iter {it}: OCR PP={pp} -> {len(cands)} candidates")
 
