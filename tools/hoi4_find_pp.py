@@ -35,9 +35,13 @@ def wi32(k, h, a, v):
                                 M.ctypes.byref(w)) and w.value == 4
 
 
-def quick_pp():
+def screencap():
     shot = M.SHOTDIR / "ft.png"
     M._ps("screencap.ps1", "-Out", str(shot), "-H", "90")
+    return shot
+
+
+def ocr_pp(shot):
     r = M._ps("ocr.ps1", "-Path", str(shot), "-X", "150", "-Y", "0", "-W", "230", "-H", "90")
     txt = (r.stdout or "").strip().replace(",", "").replace(".", "").upper()
     m = re.search(r"\d+", txt)
@@ -52,7 +56,7 @@ def main():
     k, h, _ = M.attach(write=True)
     capmb = 48 * 1024 * 1024
 
-    lo, hi = pp * 1000, (pp + 1) * 1000 - 1
+    lo, hi = pp * 1000, (pp + 20) * 1000 - 1   # wide: cover PP drift during the slow seed
     cands = {}
     for base, rsize, _p in M.iter_regions(k, h):
         if rsize > capmb:
@@ -92,12 +96,14 @@ def main():
         orig = ri32(k, h, a)
         if orig is None:
             continue
-        wi32(k, h, a, TESTVAL * 1000)
-        seen = quick_pp()
-        wi32(k, h, a, orig)            # restore immediately
-        if seen == TESTVAL:
+        end = time.time() + 0.35          # hold the poke so the render draws it
+        while time.time() < end:
+            wi32(k, h, a, TESTVAL * 1000)
+        shot = screencap()                # capture while the value is still poked
+        wi32(k, h, a, orig)               # restore original
+        if ocr_pp(shot) == TESTVAL:
             real.append(a)
-            M.log(f"  *** REAL PP @ 0x{a:X} (HUD read {seen} when poked) ***")
+            M.log(f"  *** REAL PP @ 0x{a:X} (HUD read {TESTVAL} when poked) ***")
     if not real:
         M.log("  no candidate moved the HUD - widen KEEP or re-run (PP may have drifted out).")
     else:
