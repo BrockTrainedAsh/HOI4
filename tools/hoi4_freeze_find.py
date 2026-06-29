@@ -67,6 +67,10 @@ def main():
             nv = struct.unpack("<d", d)[0]
             if 0.03 <= (nv - v) <= (pp2 - pp + 6):
                 risers.append(a)
+    (M.ROOT / "logs" / "pp_copies.json").write_text(json.dumps({"addrs": [hex(a) for a in risers]}))
+    M.log(f"  saved {len(risers)} PP-tracking copies to logs/pp_copies.json (for the debugger)")
+    if "--copies-only" in sys.argv:
+        k.CloseHandle(h); return
     M.log(f"  PP {pp}->{pp2}; {len(risers)} rising candidates; freeze-testing vs the bar...")
     poke = struct.pack("<d", POKE)
     w = M.ctypes.c_size_t(0)
